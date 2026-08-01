@@ -106,6 +106,15 @@ since it has no filesystem to open.
   token. Nothing at the call site changes.
 </Callout>
 
+[langoneditor](https://github.com/langonrock/editor) is that shape in production. It is a Tauri app
+on React and CodeMirror, so its front end is a webview and it cannot import the store. It ships the
+`langonrock` binary as a sidecar, spawns `langonrock serve` on loopback with a freshly generated
+token when you open a local folder, and points the same client at a remote host with a bearer token
+otherwise. Tokens go to the system keychain when one is available.
+
+Its own rule is worth copying: the editor derives no ids, resolves no links and reproduces no lint
+rules. It asks the server and shows the answer, so the two cannot drift apart.
+
 <Callout type="warn" title="Windows has no unix socket here">
   A local sidecar there means loopback TCP, and the server refuses TCP without tokens. Generate one
   per session and pass it in the connection string.

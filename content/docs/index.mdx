@@ -24,11 +24,13 @@ questions:
 | Tokens billed for a 20-question session   |       116,357 | **64,355** |
 | Tool calls                                |            30 |     **17** |
 | Tokens for one concept read               |           594 |    **213** |
+| Retrieval, hit rate in the top 8          |           70% |    **75%** |
 
 The saving comes from the manifest carrying the link graph. The agent knows every id it needs
 _before_ it fetches anything, so one batched call covers them all, and it can ask for a single
 section instead of the whole concept. The manifest itself is not smaller than the Markdown it
-replaces. [Full numbers, including where the store loses](/docs/architecture/benchmarks).
+replaces, and retrieval gives nothing back: the store matches the raw files on ranking and passes
+them on hit rate. [Full numbers, including where the store still loses](/docs/architecture/benchmarks).
 
 ## Where to start
 
@@ -105,3 +107,14 @@ langonrock get orders --section schema --data ./data --tenant acme
   `@modelcontextprotocol/sdk` and `zod`, both for the MCP server. Everything else, including YAML
   parsing, directory walking, hashing and zstd, comes from Bun.
 </Callout>
+
+## The editor
+
+[langoneditor](https://github.com/langonrock/editor) is the human-facing half: a desktop app for
+macOS, Windows and Linux that browses the bundle tree, edits concepts as Markdown with a form for
+the frontmatter the compiler keeps, draws the link graph, searches through the server's BM25 index,
+and imports or exports bundles as archives or spreadsheets.
+
+It ships the langonrock binary inside it, so nothing else is required to run it. See [editing over
+the network](/docs/guides/editing) for the API it is built on, and [the
+library](/docs/guides/library) for the client it uses.

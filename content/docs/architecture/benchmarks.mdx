@@ -17,11 +17,13 @@ navigation and never a wrong turn.
 Every number below comes from one script, on one machine.
 
 ```sh
-bun bench/run.ts <bundles> <concepts per bundle>
+bun bench/run.ts [profile] [bundles] [concepts per bundle]
 ```
 
-`1 500` produces the token tables. `10 500` and `40 500` produce the scale rows. It prints one JSON
-line.
+`1 500` produces the token tables. `10 500` and `40 500` produce the scale rows. A profile name —
+`spec`, `handbook`, `handbook-untitled`, `scripture`, `scripture-coarse`, `book`, `book-coarse` —
+runs the same harness over a real public-domain corpus, downloaded once into `bench/.cache`. Each
+run prints one JSON line.
 
 ## Tokens, 500 concepts in one bundle
 
@@ -56,11 +58,17 @@ that same model.
 
 ## Scale
 
+The tenant grows by adding bundles of 500 concepts each, which is what the `1 500`, `10 500` and
+`40 500` runs mean. That is why the slice stays the same size.
+
 | Concepts         |    500 |   5,000 |  20,000 |
 | ---------------- | -----: | ------: | ------: |
+| Bundles          |      1 |      10 |      40 |
 | Whole manifest   | 20,549 | 205,851 | 835,922 |
 | One bundle slice | 20,549 |  20,419 |  20,486 |
-| Snapshot on disk | 0.5 MB |  5.0 MB | 20.1 MB |
+| Snapshot on disk | 0.5 MB |  5.1 MB | 20.7 MB |
+
+At 500 concepts there is only one bundle, so the whole manifest and the slice are the same number.
 
 The bundle slice stays flat as the tenant grows. That is what makes a [large
 tenant](/docs/guides/large-tenants) usable at all.
@@ -69,12 +77,12 @@ tenant](/docs/guides/large-tenants) usable at all.
 
 | Operation                    |   500 | 5,000 | 20,000 |
 | ---------------------------- | ----: | ----: | -----: |
-| Compile and write a snapshot |    32 |   211 |    782 |
-| Open a snapshot, cold        |  0.54 |  3.74 |   16.3 |
+| Compile and write a snapshot |    31 |   253 |    829 |
+| Open a snapshot, cold        |  0.55 |  4.45 |   17.6 |
 | Read the manifest, warm      | &lt;0.01 | &lt;0.01 | &lt;0.01 |
-| Batched `get` of 3 sections  |  0.07 |  0.08 |   0.08 |
-| Build the BM25 index         |    29 |   251 |  1,047 |
-| BM25 query                   |  0.14 |  1.38 |   7.09 |
+| Batched `get` of 3 sections  |  0.08 |  0.11 |   0.09 |
+| Build the BM25 index         |    22 |   193 |    674 |
+| BM25 query                   |  0.10 |  0.55 |   1.83 |
 
 `get` is flat. Batching a fetch costs the same on a tenant of twenty thousand concepts as on one of
 five hundred.
@@ -82,33 +90,55 @@ five hundred.
 None of this is where the time goes, though. One saved model round trip is worth about a second,
 four orders of magnitude more than any row above.
 
-That table leaves memory out on purpose. The store rebuilds the index in memory once per snapshot,
-and peak process memory at 20,000 concepts landed anywhere between 0.9 and 1.2 GB across runs, too
-noisy for a single figure to be worth printing. It is still the practical ceiling on how many large
-tenants one daemon can hold.
+That table leaves memory mostly out on purpose. The store rebuilds the index in memory once per
+snapshot, and peak process memory at 20,000 concepts landed around 0.85 GB — down by roughly a
+third since the postings moved into typed arrays and the build stopped holding every body at once.
+It is still the practical ceiling on how many large tenants one daemon can hold. `serve` rebuilds
+the index right after each sync, so the first search after a save does not pay the build.
 
 ## Retrieval accuracy
 
 Whether the concept that answers the question is in the top eight, over the same twenty questions
 on 500 concepts.
 
-| Retrieval                                  | Hit rate |  MRR |
-| ------------------------------------------ | -------: | ---: |
-| OKF BM25 over raw Markdown                 |      70% | 0.43 |
-| langonrock BM25                            |      65% | 0.26 |
-| langonrock BM25 plus the one-hop expansion |  **75%** | 0.27 |
+| Retrieval                                  | Hit rate |      MRR |
+| ------------------------------------------ | -------: | -------: |
+| OKF BM25 over raw Markdown                 |      70% |     0.43 |
+| langonrock BM25                            |      70% |     0.43 |
+| langonrock BM25 plus the one-hop expansion |  **75%** | **0.44** |
 
 Queries that describe a concept rather than name it land at 95% on both sides.
 
-<Callout type="warn" title="Compiling costs ranking, and that is a real loss">
-  The store ranks worse than the raw files on mean reciprocal rank. The frontmatter the compiler
-  strips repeated the concept id in its `resource` and `sources` URLs, which happened to help the
-  ranker. Field weighting recovers the hit rate and the one-hop expansion passes it, but the top
-  position is still better on raw Markdown.
+<Callout title="Compiling no longer costs ranking">
+  It used to. The frontmatter the compiler strips repeated the concept id in its `resource` and
+  `sources` URLs, which happened to help the ranker, and the store ranked worse than the raw files
+  because of it. Indexing the concept's own names — its id and its frontmatter `title`, weighted
+  above the other cells — recovered all of it. The title rides in the snapshot directory, never in
+  a manifest row, so this costs zero prompt tokens.
 </Callout>
 
-That is the honest shape of the trade. langonrock finds the right concept more often and ranks it
-slightly worse when it does.
+## Document shape
+
+Everything above describes a warehouse catalogue. The same harness runs over real public-domain
+corpora, converted to OKF mechanically. The saving is a property of the documents rather than of
+the store: it tracks how much structure — links, headings, titles — the corpus already carries.
+Retrieval is hit rate at 8 for queries that name a concept, store with its default expansion
+against the raw-file baseline.
+
+| Profile            | What it is                           | Saving | Retrieval vs raw |
+| ------------------ | ------------------------------------ | -----: | ---------------- |
+| `spec`             | 28 IETF RFCs                         |    98% | **100%** vs 95%  |
+| `scripture-coarse` | The Bible, one concept per book      |    97% | 90% vs 90%       |
+| `handbook`         | 1,281 of Mrs Beeton's recipes        |    85% | **100%** vs 90%  |
+| `book-coarse`      | Four novels, one concept per novel   |    64% | 100% vs 100%     |
+| `scripture`        | The Bible, one concept per chapter   |    53% | 90% vs 90%       |
+| `reference`        | The warehouse catalogue above        |    52% | **75%** vs 70%   |
+| `book`             | Four novels, one concept per chapter |     2% | 80% vs 80%       |
+
+The store meets or beats the raw files on every profile except the novels' top position (MRR 0.69
+against 0.72). On prose with no headings and no links the saving is about two percent: the
+advantage does not come from having a store, it comes from documents that were already structured.
+A folder of chapters is better served by reading the files.
 
 ## How much to trust these numbers
 
