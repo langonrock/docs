@@ -72,6 +72,62 @@ Scale is fluid `clamp()`. Display runs 1.75rem to 3.25rem, well under the 6rem c
 tracking is `-0.02em`, inside the `-0.04em` floor. Prose is capped at 68ch with `text-wrap: pretty`;
 headings use `text-wrap: balance`.
 
+## Identity
+
+`logo.png` is a carved stone cube with a face, transparent background, 1024×1024. It ships as
+`public/logo.png`, as `src/app/icon.png` at 512 and `src/app/apple-icon.png` at 180, and beside the
+wordmark in the navigation.
+
+The mark is warmer and more playful than the rest of this system, which is deliberate contrast
+rather than an accident: the page argues from measurements, and the mark keeps it from reading as
+humourless. It is never placed on a light neutral surface at small sizes, where the pale stone loses
+its edges; on the cobalt bands and in the OG image it has the contrast it needs.
+
+## Data visualization
+
+Three charts, all **emphasis** rather than categorical: one accent hue plus a de-emphasis gray. The
+accent follows the entity, not the winner, so langonrock is cobalt in every chart including the one
+where it loses. Colouring by rank would repaint the meaning every time a number moved.
+
+| Token           | Light                  | Dark                  | Role                       |
+| --------------- | ---------------------- | --------------------- | -------------------------- |
+| `--lr-mark`     | `oklch(0.42 0.15 252)` | `oklch(0.7 0.14 252)` | The langonrock path        |
+| `--lr-mark-dim` | `oklch(0.62 0.02 252)` | `oklch(0.55 0.02 252)` | Context series             |
+| `--lr-track`    | `oklch(0.95 0.005 252)` | `oklch(0.27 0.01 252)` | Bar track                  |
+
+Dark mode is selected from the same ramp against the dark surface, not flipped.
+
+Validator results, run rather than reasoned about:
+
+| Check                 | Light      | Dark       |
+| --------------------- | ---------- | ---------- |
+| CVD separation        | ΔE 20.9    | ΔE 18.3    |
+| Normal-vision floor   | ΔE 23.0    | ΔE 19.1    |
+| Contrast vs surface   | pass, ≥3:1 | pass, ≥3:1 |
+
+The mark gray was darkened from `oklch(0.78 0.02 252)` to `oklch(0.62 0.02 252)` because the lighter
+value measured 1.94:1 against the surface. The validator also reports FAIL on its lightness-band and
+chroma-floor checks; both are scoped to categorical palettes, and an emphasis palette exists
+precisely to sit outside a shared lightness band with one slot reading gray.
+
+Every chart is a real `<table>` with the bar drawn inside a cell, so the chart and its table view are
+the same DOM and cannot drift apart. Bars are 8px with a 3px radius on the growing end only, square
+at the baseline. Direct labels sit outside the bar end, so nothing is clipped.
+
+**No dual axis.** Hit rate and mean reciprocal rank are different scales, so they are two small
+multiples over the same three categories rather than one plot with two y-axes.
+
+## SEO
+
+`metadataBase` is `https://langonrock.com`. Without it every OG URL resolved to `localhost:3000`
+and every social preview was broken.
+
+- Title template `%s — Lang on Rock`, with the home page overriding to an absolute title.
+- `opengraph-image.tsx` renders the root card at 1200×630 on the cobalt surface with the mark.
+- `/og/docs/*` renders a per-page card for all 22 documentation pages.
+- `sitemap.ts` enumerates the root plus every page from the loader, 23 URLs.
+- `robots.ts` allows everything and points at the sitemap.
+
 ## Layout
 
 Full-width colour bands alternating with a `max-w-6xl` measure. Rhythm comes from the band changes

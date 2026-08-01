@@ -1,11 +1,12 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
-import { gitConfig } from '@/lib/shared';
+import { appName, gitConfig, siteDescription } from '@/lib/shared';
+import { BarChart, GroupedBarChart, Legend } from './charts';
 
 export const metadata: Metadata = {
-  title: 'Lang on Rock',
-  description:
-    'A multi-tenant store for Open Knowledge Format bundles, built so an agent spends as few tokens and as few round trips as possible reading them.',
+  title: { absolute: `${appName} — a token-efficient store for OKF knowledge bundles` },
+  description: siteDescription,
+  alternates: { canonical: '/' },
 };
 
 const repo = `https://github.com/${gitConfig.user}/${gitConfig.repo}`;
@@ -68,6 +69,92 @@ const styles = `
 }
 .lr-link:hover {
   text-decoration-color: currentColor;
+}
+.lr {
+  --lr-mark: oklch(0.42 0.15 252);
+  --lr-mark-dim: oklch(0.62 0.02 252);
+  --lr-track: oklch(0.95 0.005 252);
+}
+.dark .lr {
+  --lr-mark: oklch(0.7 0.14 252);
+  --lr-mark-dim: oklch(0.55 0.02 252);
+  --lr-track: oklch(0.27 0.01 252);
+}
+.lr-figure {
+  margin: 0;
+}
+.lr-figcaption {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--color-fd-border);
+}
+.lr-chart {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 0.75rem;
+}
+.lr-chart-label {
+  text-align: left;
+  font-weight: 400;
+  font-size: 0.8125rem;
+  color: var(--color-fd-muted-foreground);
+  padding: 0.3rem 1rem 0.3rem 0;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.lr-chart-cell {
+  width: 100%;
+  padding: 0.3rem 0;
+  vertical-align: middle;
+}
+.lr-track {
+  display: block;
+  height: 0.5rem;
+  background: var(--lr-track);
+  border-radius: 2px;
+}
+.lr-fill {
+  display: block;
+  height: 100%;
+  background: var(--lr-mark-dim);
+  border-radius: 0 3px 3px 0;
+}
+.lr-fill-accent {
+  background: var(--lr-mark);
+}
+.lr-chart-value {
+  text-align: right;
+  font-size: 0.8125rem;
+  padding: 0.3rem 0 0.3rem 1rem;
+  white-space: nowrap;
+  vertical-align: middle;
+  font-variant-numeric: tabular-nums;
+}
+.lr-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.25rem;
+  margin-top: 1rem;
+  font-size: 0.8125rem;
+  color: var(--color-fd-muted-foreground);
+}
+.lr-legend li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.lr-swatch {
+  width: 0.75rem;
+  height: 0.5rem;
+  border-radius: 2px;
+  background: var(--lr-mark-dim);
+}
+.lr-swatch-accent {
+  background: var(--lr-mark);
 }
 @media (prefers-reduced-motion: reduce) {
   .lr-row {
@@ -274,14 +361,137 @@ export default function HomePage() {
         </table>
 
         <p className="lr-prose mt-6 text-sm text-fd-muted-foreground">
-          The manifest is not smaller than the Markdown it replaces. The saving is batching and
-          section addressing. It also ranks worse than raw Markdown on mean reciprocal rank, which
-          is a real cost of compiling.{' '}
-          <Link href="/docs/architecture/benchmarks" className="lr-link text-fd-foreground">
-            Full numbers, including where the store loses
-          </Link>
-          .
+          The manifest is not smaller than the Markdown it replaces. It is larger than a well-kept{' '}
+          <code className="lr-mono">index.md</code>. The saving comes from somewhere else.
         </p>
+      </section>
+
+      <section className="border-t border-fd-border">
+        <div className="mx-auto w-full max-w-6xl px-6 py-20">
+          <h2 className="lr-h2 font-medium">Where the saving comes from</h2>
+          <p className="lr-prose mt-4 text-fd-muted-foreground">
+            Two things, neither of them density. Asking for one section instead of a whole document,
+            and narrowing to a bundle instead of reading the tenant.
+          </p>
+
+          <div className="mt-10 grid gap-x-16 gap-y-12 lg:grid-cols-2">
+            <div>
+              <BarChart
+                title="What one concept read costs"
+                axis="594 tokens"
+                unit="tokens"
+                max={594}
+                rows={[
+                  { label: 'OKF read_concept', value: 594, display: '594' },
+                  { label: 'get(id)', value: 445, display: '445' },
+                  { label: 'get(id, "schema")', value: 213, display: '213', accent: true },
+                ]}
+              />
+              <p className="mt-4 text-sm text-fd-muted-foreground">
+                Compiling the frontmatter away takes a read from 594 to 445. Asking for one section
+                takes it to 213.
+              </p>
+            </div>
+
+            <div>
+              <GroupedBarChart
+                title="Manifest tokens as the tenant grows"
+                axis="836k tokens"
+                unit="tokens"
+                max={835922}
+                groups={[
+                  {
+                    label: '500 concepts',
+                    whole: { label: 'Whole manifest', value: 20549, display: '20,549' },
+                    slice: {
+                      label: 'One bundle slice',
+                      value: 20549,
+                      display: '20,549',
+                      accent: true,
+                    },
+                  },
+                  {
+                    label: '5,000 concepts',
+                    whole: { label: 'Whole manifest', value: 205851, display: '205,851' },
+                    slice: {
+                      label: 'One bundle slice',
+                      value: 20419,
+                      display: '20,419',
+                      accent: true,
+                    },
+                  },
+                  {
+                    label: '20,000 concepts',
+                    whole: { label: 'Whole manifest', value: 835922, display: '835,922' },
+                    slice: {
+                      label: 'One bundle slice',
+                      value: 20486,
+                      display: '20,486',
+                      accent: true,
+                    },
+                  },
+                ]}
+              />
+              <Legend
+                items={[
+                  { label: 'Whole manifest' },
+                  { label: 'One bundle slice', accent: true },
+                ]}
+              />
+              <p className="mt-4 text-sm text-fd-muted-foreground">
+                The slice stays flat as the tenant grows, because the snapshot groups rows by bundle
+                and the reader hands back a byte range.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="border-t border-fd-border">
+        <div className="mx-auto w-full max-w-6xl px-6 py-20">
+          <h2 className="lr-h2 font-medium">And where it loses</h2>
+          <p className="lr-prose mt-4 text-fd-muted-foreground">
+            Compiling costs ranking. The frontmatter the compiler strips repeated the concept id in
+            its <code className="lr-mono">resource</code> and <code className="lr-mono">sources</code>{' '}
+            URLs, which happened to help the ranker. Field weighting and the one-hop expansion
+            recover the hit rate. They do not recover the top position.
+          </p>
+
+          <div className="mt-10 grid gap-x-16 gap-y-12 lg:grid-cols-2">
+            <BarChart
+              title="Answer in the top eight"
+              axis="100%"
+              unit="percent"
+              max={100}
+              rows={[
+                { label: 'OKF BM25, raw Markdown', value: 70, display: '70%' },
+                { label: 'langonrock BM25', value: 65, display: '65%' },
+                { label: 'plus one-hop expansion', value: 75, display: '75%', accent: true },
+              ]}
+            />
+            <BarChart
+              title="Mean reciprocal rank"
+              axis="0.50"
+              unit="mean reciprocal rank"
+              max={0.5}
+              rows={[
+                { label: 'OKF BM25, raw Markdown', value: 0.43, display: '0.43' },
+                { label: 'langonrock BM25', value: 0.26, display: '0.26' },
+                { label: 'plus one-hop expansion', value: 0.27, display: '0.27', accent: true },
+              ]}
+            />
+          </div>
+
+          <p className="lr-prose mt-10 text-sm text-fd-muted-foreground">
+            Numbers come from a synthetic corpus and a deliberately crude{' '}
+            <code className="lr-mono">chars / 4</code> token estimate. Treat them as an order of
+            magnitude and measure your own bundles.{' '}
+            <Link href="/docs/architecture/benchmarks" className="lr-link text-fd-foreground">
+              The full tables, and the method behind them
+            </Link>
+            .
+          </p>
+        </div>
       </section>
 
       <section className="border-t border-fd-border">
