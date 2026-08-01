@@ -110,6 +110,16 @@ const styles = `
   --lr-mark-dim: oklch(0.55 0.02 252);
   --lr-track: oklch(0.27 0.01 252);
 }
+/*
+ * Matches the shell's own container so the page edge lines up with the navbar
+ * title rather than sitting inside it.
+ */
+.lr-container {
+  width: 100%;
+  margin-inline: auto;
+  max-width: var(--fd-layout-width, 1400px);
+  padding-inline: 1rem;
+}
 .lr-figure {
   margin: 0;
 }
@@ -279,12 +289,12 @@ export default function HomePage() {
       <style>{styles}</style>
 
       <section className="lr-drench">
-        <div className="mx-auto w-full max-w-6xl px-6 py-16 sm:py-24">
-          <h1 className="lr-display max-w-4xl font-medium">
+        <div className="lr-container py-16 sm:py-24">
+          <h1 className="lr-display mx-auto max-w-4xl text-center font-medium">
             Your Markdown stays the source of truth. Your agent reads the compiled manifest.
           </h1>
 
-          <p className="lr-prose mt-7 text-[1.0625rem] leading-relaxed text-[color:var(--lr-on-band-dim)]">
+          <p className="lr-prose mx-auto mt-7 text-center text-[1.0625rem] leading-relaxed text-[color:var(--lr-on-band-dim)]">
             OKF is a good authoring format and an expensive reading format. The agent pays for full
             frontmatter on every read, and the reference consumption pattern walks the graph one
             file at a time, spending an inference turn per hop. langonrock compiles a folder of
@@ -292,7 +302,7 @@ export default function HomePage() {
             concepts in batches, by section.
           </p>
 
-          <div className="mt-9 flex flex-wrap items-center gap-x-8 gap-y-4">
+          <div className="mt-9 flex flex-wrap items-center justify-center gap-x-8 gap-y-4">
             <a
               href={repo}
               className="lr-mono rounded-md bg-[color:var(--lr-action-bg)] px-4 py-2.5 text-sm font-medium text-[color:var(--lr-action-fg)] transition-opacity hover:opacity-90"
@@ -345,7 +355,7 @@ export default function HomePage() {
             </table>
           </div>
 
-          <p className="lr-prose mt-5 text-sm text-[color:var(--lr-on-band-dim)]">
+          <p className="lr-prose mx-auto mt-5 text-center text-sm text-[color:var(--lr-on-band-dim)]">
             One row per concept, and a concept is any Markdown document with frontmatter. A runbook,
             an architecture decision, an API, a metric, a warehouse table. The{' '}
             <span style={{ color: 'var(--lr-signal)' }}>links</span> column carries the graph, so
@@ -356,7 +366,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="mx-auto w-full max-w-6xl px-6 py-20">
+      <section className="lr-container py-20">
         <h2 className="lr-h2 font-medium">Twenty questions, one session</h2>
         <p className="lr-prose mt-4 text-fd-muted-foreground">
           Measured against the OKF reference consumption pattern, over the same corpus and the same
@@ -404,7 +414,7 @@ export default function HomePage() {
       </section>
 
       <section className="border-t border-fd-border">
-        <div className="mx-auto w-full max-w-6xl px-6 py-20">
+        <div className="lr-container py-20">
           <h2 className="lr-h2 font-medium">Where the saving comes from</h2>
           <p className="lr-prose mt-4 text-fd-muted-foreground">
             Two things, neither of them density. Asking for one section instead of a whole document,
@@ -486,7 +496,7 @@ export default function HomePage() {
       </section>
 
       <section className="border-t border-fd-border">
-        <div className="mx-auto w-full max-w-6xl px-6 py-20">
+        <div className="lr-container py-20">
           <h2 className="lr-h2 font-medium">And where it loses</h2>
           <p className="lr-prose mt-4 text-fd-muted-foreground">
             Compiling costs ranking. The frontmatter the compiler strips repeated the concept id in
@@ -533,7 +543,7 @@ export default function HomePage() {
       </section>
 
       <section className="border-t border-fd-border">
-        <div className="mx-auto w-full max-w-6xl px-6 py-20">
+        <div className="lr-container py-20">
           <h2 className="lr-h2 font-medium">What it does</h2>
 
           <div className="mt-9 grid gap-x-14 gap-y-9 sm:grid-cols-2">
@@ -550,7 +560,7 @@ export default function HomePage() {
       </section>
 
       <section className="border-t border-fd-border">
-        <div className="mx-auto w-full max-w-6xl px-6 py-20">
+        <div className="lr-container py-20">
           <h2 className="lr-h2 font-medium">Three modes, one interface</h2>
           <p className="lr-prose mt-4 text-fd-muted-foreground">
             The scheme picks the mode and <code className="lr-mono">open(dsn)</code> returns the same
@@ -570,7 +580,7 @@ export default function HomePage() {
       </section>
 
       <section className="lr-deep">
-        <div className="mx-auto w-full max-w-6xl px-6 py-16">
+        <div className="lr-container py-16">
           <h2 className="lr-h2 font-medium">People get an editor, not a manifest</h2>
           <p className="lr-prose mt-4 text-[color:var(--lr-on-band-dim)] leading-relaxed">
             The compiled read model is for agents. langoneditor is the half you look at: a desktop
@@ -592,7 +602,7 @@ export default function HomePage() {
       </section>
 
       <section className="border-t border-fd-border">
-        <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-6 px-6 py-12">
+        <div className="lr-container flex flex-wrap items-center justify-between gap-6 py-12">
           <p className="lr-mono text-sm text-fd-muted-foreground">
             Two runtime dependencies. No database. MIT.
           </p>

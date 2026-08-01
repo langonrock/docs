@@ -162,8 +162,14 @@ and every social preview was broken.
 
 ## Layout
 
-Full-width colour bands alternating with a `max-w-6xl` measure. Rhythm comes from the band changes
-and from varied vertical padding, not from a repeated section chrome.
+Full-width colour bands alternating with a contained measure. Every section uses `.lr-container`,
+which reads `--fd-layout-width` from the documentation shell and pads by `1rem`, so the page edge
+lines up with the navbar title. An earlier version used `max-w-6xl` with `px-6`, which sat about
+124px inside the navbar on each side at wide viewports and read as a misalignment.
+
+The hero headline, its paragraph and the action row are centred; the manifest below them stays
+left-aligned, because it is tabular data and centring cells would break the column read. Rhythm
+comes from the band changes and from varied vertical padding, not from a repeated section chrome.
 
 There are no cards. The capability list is a two-column text grid with headings and sentences, since
 boxing six short items adds borders without adding structure. The manifest is a real `<table>` in an
