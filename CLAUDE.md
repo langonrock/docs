@@ -118,6 +118,18 @@ All written output — code, identifiers, comments, docs, commit messages, PR de
 
 Enforce these with whatever static-analysis, linting, and coverage tooling your stack provides; configure thresholds in the project's tooling rather than tracking them by hand. These complement, not replace, Sections 2–3 (Simplicity, Surgical Changes): prefer the change that keeps complexity and module size low without expanding scope.
 
+## 11. Never Start Your Own Dev Server
+
+**The user already has one running. Use it.**
+
+- Assume the app is served on its default port (`3000` for this project) and just hit it — `curl`, a screenshot, whatever you need.
+- Never run `npm run dev`, `npm run start`, `next start`, or the equivalent. Not in the foreground, not in the background, not on an alternate port to dodge a conflict.
+- `EADDRINUSE` is not a problem to route around. It is confirmation the user's server is up. Use that port.
+- If the port is genuinely dead and you need it running, ask the user to start it rather than starting it yourself.
+- Never kill a process on a dev port. It is not yours.
+
+The same applies to any long-lived process the user is likely to already be running: watchers, daemons, database containers, tunnels.
+
 ---
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
