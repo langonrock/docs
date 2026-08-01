@@ -1,22 +1,20 @@
 import { RootProvider } from 'fumadocs-ui/provider/next';
 import './global.css';
-import { Inter } from 'next/font/google';
+import { GeistMono } from 'geist/font/mono';
+import { GeistSans } from 'geist/font/sans';
 import type { Metadata } from 'next';
-import { appName, siteDescription, siteUrl } from '@/lib/shared';
-
-const inter = Inter({
-  subsets: ['latin'],
-});
+import { appName, siteDescription, siteTagline, siteUrl } from '@/lib/shared';
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
-    default: `${appName} — a token-efficient store for OKF knowledge bundles`,
+    default: `${appName} — ${siteTagline}`,
     template: `%s — ${appName}`,
   },
   description: siteDescription,
   applicationName: appName,
   keywords: [
+    'document database',
     'Open Knowledge Format',
     'OKF',
     'MCP server',
@@ -30,7 +28,7 @@ export const metadata: Metadata = {
     siteName: appName,
     url: siteUrl,
     locale: 'en_US',
-    title: `${appName} — a token-efficient store for OKF knowledge bundles`,
+    title: `${appName} — ${siteTagline}`,
     description: siteDescription,
   },
   twitter: {
@@ -49,9 +47,17 @@ export const metadata: Metadata = {
 
 export default function Layout({ children }: LayoutProps<'/'>) {
   return (
-    <html lang="en" className={inter.className} suppressHydrationWarning>
+    <html
+      lang="en"
+      className={`dark ${GeistSans.variable} ${GeistMono.variable} ${GeistSans.className}`}
+      suppressHydrationWarning
+    >
       <body className="flex flex-col min-h-screen">
-        <RootProvider>{children}</RootProvider>
+        <RootProvider
+          theme={{ defaultTheme: 'dark', forcedTheme: 'dark', enableSystem: false, hotKey: false }}
+        >
+          {children}
+        </RootProvider>
       </body>
     </html>
   );

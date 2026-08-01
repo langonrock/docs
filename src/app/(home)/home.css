@@ -1,0 +1,975 @@
+/*
+ * Dark only. The reference object is a hex dump: an offset gutter, byte columns
+ * on a fixed grid, an ASCII gutter, and colour reserved for the bytes that carry
+ * structure. The store is byte-deterministic and content-addressed, so the dump
+ * is the artifact rather than a costume borrowed from a terminal.
+ *
+ * Contrast is computed from OKLCH against the real surfaces, not estimated.
+ * Against the page: ink 17.40:1, dim 8.79:1, faint 5.54:1, cobalt 6.72:1,
+ * signal 12.57:1, flag 9.76:1. Against the panel, which is the worst case for
+ * every one of them: ink 15.23:1, dim 7.69:1, faint 4.85:1, cobalt 5.88:1,
+ * signal 11.00:1, flag 8.54:1. Dark ink on the cobalt action: 6.67:1. The chart
+ * marks are graphics rather than text and clear the 3:1 floor against their own
+ * track: accent 5.73:1, context series 3.51:1. `--lr-edge` is the only boundary
+ * that identifies a control, so it clears the same floor rather than the hairline
+ * budget: 3.35:1 on the band, 3.58:1 on the page.
+ */
+.lr {
+  --lr-panel: oklch(0.225 0.018 258);
+  --lr-panel-soft: oklch(0.192 0.016 258);
+  --lr-rule: oklch(0.36 0.022 258 / 0.55);
+  --lr-rule-soft: oklch(0.36 0.022 258 / 0.26);
+  /*
+   * Control boundaries, not content hairlines. `--lr-rule` composites to 1.29:1
+   * on the band, which is fine for a line between paragraphs and fails 1.4.11 for
+   * the border that is the only thing identifying a button as a button.
+   */
+  --lr-edge: oklch(0.52 0.02 258);
+
+  --lr-ink: oklch(0.96 0.004 258);
+  --lr-dim: oklch(0.75 0.014 258);
+  --lr-faint: oklch(0.628 0.017 258);
+
+  --lr-cobalt: oklch(0.68 0.163 258);
+  --lr-signal: oklch(0.84 0.13 195);
+  --lr-flag: oklch(0.8 0.125 25);
+  --lr-cta-fg: oklch(0.16 0.03 258);
+
+  --lr-mark: oklch(0.68 0.163 258);
+  --lr-mark-dim: oklch(0.555 0.018 258);
+  --lr-track: oklch(0.235 0.018 258);
+
+  --lr-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --lr-mono: var(--font-geist-mono), ui-monospace, monospace;
+
+  font-family: var(--lr-sans);
+  color: var(--lr-ink);
+}
+
+.lr-mono {
+  font-family: var(--lr-mono);
+  font-feature-settings: 'tnum' 1;
+}
+
+/* Layout ------------------------------------------------------------------ */
+
+.lr-container {
+  width: 100%;
+  margin-inline: auto;
+  max-width: var(--fd-layout-width, 1400px);
+  padding-inline: 1.25rem;
+}
+
+.lr-band {
+  background: var(--lr-panel-soft);
+  border-block: 1px solid var(--lr-rule-soft);
+}
+
+.lr-rule-top {
+  border-top: 1px solid var(--lr-rule-soft);
+}
+
+/*
+ * The fold pairs the claim with the measurement that backs it, so an evaluator
+ * reads both without scrolling. Below 64rem the widget stacks under the prose
+ * rather than shrinking, because a bar chart in half a phone width is a smear.
+ */
+/*
+ * The single column is `minmax(0, 1fr)` rather than the implicit `auto`, because
+ * an auto track sizes to its widest child's max-content and `.lr-install` asks
+ * for `max-content`. That resolved the install block's own `max-width: 100%`
+ * against a 774px track, so below 64rem the headline, the command and the
+ * benchmark widget all rendered past the viewport and were clipped by the
+ * gradient's `overflow: hidden`.
+ */
+.lr-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 3rem;
+}
+/*
+ * The split waits until 72rem. At 64rem it left the headline a 408px column and
+ * a 52px display size, which is five ragged lines and a worse read than the same
+ * headline across the full width with the widget under it.
+ */
+@media (min-width: 72rem) {
+  .lr-hero {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 32rem);
+    gap: 4rem;
+    align-items: start;
+  }
+}
+
+/*
+ * At the shell's width a 68ch measure left-aligned under its heading leaves half
+ * the viewport empty. The heading takes a column of its own and the two share a
+ * first baseline.
+ */
+.lr-head {
+  display: grid;
+  gap: 0.875rem;
+}
+@media (min-width: 64rem) {
+  .lr-head {
+    grid-template-columns: minmax(0, 22rem) minmax(0, 1fr);
+    gap: 0 5rem;
+    align-items: baseline;
+  }
+}
+
+/* Type -------------------------------------------------------------------- */
+
+.lr-display {
+  font-size: clamp(2rem, 1.15rem + 3.3vw, 3.75rem);
+  line-height: 1.04;
+  letter-spacing: -0.03em;
+  font-weight: 500;
+  text-wrap: balance;
+}
+.lr-pixel {
+  color: var(--lr-cobalt);
+  font-style: italic;
+  letter-spacing: 0.01em;
+  font-size: 0.94em;
+  text-shadow:
+    0 0 0.06em color-mix(in oklab, var(--lr-cobalt) 55%, transparent),
+    0 0 0.5em color-mix(in oklab, var(--lr-cobalt) 38%, transparent);
+}
+.lr-h2 {
+  font-size: clamp(1.5rem, 1.2rem + 1.3vw, 2.25rem);
+  line-height: 1.14;
+  letter-spacing: -0.022em;
+  font-weight: 500;
+  text-wrap: balance;
+}
+.lr-h3 {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+}
+.lr-prose {
+  max-width: 68ch;
+  text-wrap: pretty;
+  color: var(--lr-dim);
+  line-height: 1.65;
+}
+.lr-lead {
+  font-size: clamp(0.9375rem, 0.9rem + 0.22vw, 1.0625rem);
+  line-height: 1.6;
+}
+.lr-note {
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--lr-dim);
+}
+
+/* Actions ----------------------------------------------------------------- */
+
+.lr-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.875rem 1.75rem;
+}
+.lr-action {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 4px;
+  background: var(--lr-cobalt);
+  color: var(--lr-cta-fg);
+  padding: 0.6875rem 1.125rem;
+  font-family: var(--lr-mono);
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: filter 160ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.lr-action:hover {
+  filter: brightness(1.12);
+}
+
+/*
+ * The second action weight. The editor is a real destination and needs a target
+ * rather than a text link, but a second filled cobalt button would put two
+ * primary actions on one page and the close is the one that has to win. Ten less
+ * padding than `.lr-action` so the 1px border lands both at the same height.
+ */
+.lr-action-quiet {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 4px;
+  border: 1px solid var(--lr-edge);
+  color: var(--lr-ink);
+  padding: 0.625rem 1.0625rem;
+  font-family: var(--lr-mono);
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition:
+    border-color 160ms cubic-bezier(0.16, 1, 0.3, 1),
+    background-color 160ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.lr-action-quiet:hover {
+  border-color: var(--lr-cobalt);
+  background: color-mix(in oklab, var(--lr-cobalt) 12%, transparent);
+}
+
+.lr-link {
+  text-decoration: underline;
+  text-underline-offset: 0.25em;
+  text-decoration-thickness: 1px;
+  text-decoration-color: color-mix(in oklab, currentColor 40%, transparent);
+  transition: text-decoration-color 160ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.lr-link:hover {
+  text-decoration-color: currentColor;
+}
+
+.lr :focus-visible {
+  outline: 2px solid var(--lr-cobalt);
+  outline-offset: 2px;
+}
+.lr-action:focus-visible {
+  outline-color: var(--lr-ink);
+}
+
+/* The manifest table ------------------------------------------------------ */
+
+.lr-panel {
+  width: max-content;
+  max-width: 100%;
+  background: var(--lr-panel);
+  border: 1px solid var(--lr-rule);
+  border-radius: 4px;
+}
+
+/* The command that produced the rows below, so the artifact is attributed. */
+.lr-panel-head {
+  overflow-x: auto;
+  padding: 0.75rem 1.25rem;
+  border-bottom: 1px solid var(--lr-rule);
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: var(--lr-dim);
+  white-space: pre;
+}
+.lr-prompt {
+  color: var(--lr-cobalt);
+}
+
+.lr-table-scroll {
+  overflow-x: auto;
+  padding: 0.25rem 1.25rem 0.875rem;
+}
+/*
+ * Sized to its content rather than stretched to the panel. The compiler emits
+ * tab-separated columns that sit tight against each other; a table spread across
+ * 1400px reads as a layout, not as the output of `langonrock manifest`.
+ */
+.lr-table {
+  width: max-content;
+  border-collapse: collapse;
+  font-family: var(--lr-mono);
+  font-feature-settings: 'tnum' 1;
+  font-size: 0.8125rem;
+}
+.lr-table caption {
+  text-align: left;
+  color: var(--lr-faint);
+  padding-block: 0.875rem 0.75rem;
+  font-size: 0.75rem;
+  line-height: 1.6;
+}
+.lr-table th {
+  text-align: left;
+  font-weight: 400;
+  color: var(--lr-faint);
+  white-space: nowrap;
+  padding: 0.375rem 1.75rem 0.5rem 0;
+  border-bottom: 1px solid var(--lr-rule);
+}
+.lr-table td {
+  white-space: nowrap;
+  padding: 0.5rem 1.75rem 0.5rem 0;
+  border-bottom: 1px solid var(--lr-rule-soft);
+  vertical-align: top;
+}
+.lr-table th:last-child,
+.lr-table td:last-child {
+  padding-right: 0;
+}
+.lr-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+.lr-table tbody tr {
+  transition: background-color 140ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.lr-table tbody tr:hover {
+  background: var(--lr-rule-soft);
+}
+
+.lr-c-id {
+  color: var(--lr-ink);
+}
+.lr-c-text {
+  color: var(--lr-dim);
+}
+.lr-c-links {
+  color: var(--lr-signal);
+}
+.lr-c-flag {
+  color: var(--lr-flag);
+}
+.lr-c-empty {
+  color: var(--lr-faint);
+}
+
+/*
+ * The stagger arrives as a custom property rather than an inline animation-delay,
+ * because an inline declaration outranks the reduced-motion rule below and would
+ * leave the rows invisible for 400ms for a reader who asked for no motion.
+ */
+.lr-row {
+  animation: lr-emit 520ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  animation-delay: var(--d, 0ms);
+}
+@keyframes lr-emit {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 0.4rem, 0);
+  }
+}
+
+/* The hex dump ------------------------------------------------------------ */
+
+.lr-dump {
+  margin: 0;
+  width: max-content;
+  max-width: 100%;
+  background: var(--lr-panel);
+  border: 1px solid var(--lr-rule);
+  border-radius: 4px;
+}
+.lr-dump-scroll {
+  overflow-x: auto;
+  padding: 1.125rem 1.25rem;
+}
+.lr-dump-row {
+  display: flex;
+  width: max-content;
+  gap: 2ch;
+  white-space: pre;
+  font-family: var(--lr-mono);
+  font-size: 0.8125rem;
+  line-height: 1.85;
+}
+.lr-dump-offset {
+  color: var(--lr-faint);
+  transition: color 140ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.lr-dump-row:hover .lr-dump-offset {
+  color: var(--lr-cobalt);
+}
+.lr-dump-bytes {
+  display: inline-flex;
+  gap: 1ch;
+}
+/* The 8|8 split is what makes a dump scannable by eye at a fixed offset. */
+.lr-dump-bytes > :nth-child(8) {
+  margin-right: 1ch;
+}
+.lr-dump-ascii {
+  display: inline-flex;
+  padding-left: 2ch;
+  border-left: 1px solid var(--lr-rule-soft);
+}
+
+.lr-b {
+  animation: lr-byte 300ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  animation-delay: calc(var(--i, 0) * 4ms);
+}
+@keyframes lr-byte {
+  from {
+    opacity: 0;
+  }
+}
+.lr-b-text {
+  color: var(--lr-dim);
+}
+/* Tabs and newlines are the only reason a blob is a manifest, so they carry the
+ * accent and the record separator reads as a filled mark rather than a colour. */
+.lr-b-field {
+  color: var(--lr-cobalt);
+}
+.lr-b-record {
+  color: var(--lr-cta-fg);
+  background: var(--lr-cobalt);
+  border-radius: 1px;
+}
+.lr-b-pad {
+  color: transparent;
+}
+.lr-dump-caption {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1.5rem;
+  padding: 0.75rem 1.25rem;
+  border-top: 1px solid var(--lr-rule-soft);
+  font-family: var(--lr-mono);
+  font-size: 0.75rem;
+  color: var(--lr-faint);
+}
+/* Teaches the two colours in the dump rather than captioning them in prose. */
+.lr-bytekey {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem 1.25rem;
+}
+.lr-bytekey li {
+  display: flex;
+  align-items: center;
+  gap: 0.5ch;
+}
+
+.lr-digest {
+  font-family: var(--lr-mono);
+  font-size: 0.75rem;
+  line-height: 1.8;
+  color: var(--lr-dim);
+  word-break: break-all;
+}
+.lr-digest b {
+  color: var(--lr-faint);
+  font-weight: 400;
+}
+
+/* The read path ----------------------------------------------------------- */
+
+/*
+ * A step is the page's own two-column rhythm: the number and its verb sit in the
+ * same 22rem column the section headings use, so the prose and the command below
+ * it start on the one left edge the whole page shares.
+ */
+.lr-step {
+  display: grid;
+  gap: 0.875rem;
+  padding-block: 2.75rem;
+  border-top: 1px solid var(--lr-rule-soft);
+}
+.lr-step:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+.lr-step:last-child {
+  padding-bottom: 0;
+}
+@media (min-width: 64rem) {
+  .lr-step {
+    grid-template-columns: minmax(0, 22rem) minmax(0, 1fr);
+    gap: 0 5rem;
+  }
+}
+.lr-step-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.875rem;
+}
+.lr-step-n {
+  font-size: 0.8125rem;
+  color: var(--lr-cobalt);
+}
+.lr-step-title {
+  font-size: 1.125rem;
+  font-weight: 500;
+  letter-spacing: -0.012em;
+}
+.lr-step-note {
+  margin-top: 0.875rem;
+  max-width: 62ch;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: var(--lr-faint);
+}
+
+.lr-code {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 1.125rem;
+  background: var(--lr-panel);
+  border: 1px solid var(--lr-rule);
+  border-radius: 4px;
+  padding: 0.75rem 0.75rem 0.75rem 1.125rem;
+}
+.lr-code code {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  white-space: pre;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: var(--lr-ink);
+}
+
+.lr-dsn-list {
+  margin-top: 1.125rem;
+  border: 1px solid var(--lr-rule);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.lr-dsn-row {
+  padding: 0.875rem 1.125rem;
+  background: var(--lr-panel);
+  border-top: 1px solid var(--lr-rule-soft);
+}
+.lr-dsn-row:first-child {
+  border-top: 0;
+}
+.lr-dsn-row dt {
+  overflow-x: auto;
+  white-space: pre;
+  font-size: 0.8125rem;
+  color: var(--lr-ink);
+}
+.lr-dsn-row dd {
+  margin: 0.3125rem 0 0;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: var(--lr-faint);
+}
+
+/* Install ----------------------------------------------------------------- */
+
+.lr-install {
+  width: max-content;
+  max-width: 100%;
+}
+.lr-install-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1.25rem;
+  margin-bottom: 0.75rem;
+}
+.lr-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+.lr-tab {
+  border-radius: 4px;
+  padding: 0.4375rem 0.75rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--lr-dim);
+  transition: color 140ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.lr-tab:hover {
+  color: var(--lr-ink);
+}
+.lr-tab-on,
+.lr-tab-on:hover {
+  background: var(--lr-cobalt);
+  color: var(--lr-cta-fg);
+}
+.lr-install-script {
+  font-size: 0.8125rem;
+  color: var(--lr-faint);
+}
+
+.lr-install-cmd {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  background: var(--lr-panel);
+  border: 1px solid var(--lr-rule);
+  border-radius: 4px;
+  padding: 0.75rem 0.75rem 0.75rem 1.125rem;
+}
+.lr-install-cmd code {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  white-space: pre;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: var(--lr-ink);
+}
+.lr-copy {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 4px;
+  color: var(--lr-faint);
+  transition:
+    color 140ms cubic-bezier(0.16, 1, 0.3, 1),
+    background-color 140ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.lr-copy:hover {
+  background: var(--lr-rule-soft);
+  color: var(--lr-ink);
+}
+.lr-install-note {
+  margin-top: 0.75rem;
+  max-width: 62ch;
+}
+
+/* The benchmark widget ---------------------------------------------------- */
+
+/*
+ * Ruled rather than filled. --lr-track sits at lightness 0.235 and --lr-panel at
+ * 0.225, so a panel surface behind the bars would swallow the track they are
+ * measured against. On the page ground every chart pair stays the one already
+ * measured in the header comment.
+ */
+.lr-bench {
+  border: 1px solid var(--lr-rule);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow:
+    0 1px 0 oklch(1 0 0 / 0.05) inset,
+    0 20px 48px -16px oklch(0 0 0 / 0.55);
+}
+.lr-bench-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  padding: 0.5rem 0.625rem;
+  background: var(--lr-panel-soft);
+  border-bottom: 1px solid var(--lr-rule);
+}
+/*
+ * Decoration, so it is the first thing to go when the four tabs stop fitting on
+ * one line. Without it the row wraps and the dots sit centred against a two-line
+ * block, which reads as a broken grid rather than a window chrome.
+ */
+.lr-dots {
+  display: none;
+  flex: none;
+  gap: 0.5rem;
+  padding-inline: 0.25rem;
+}
+@media (min-width: 26rem) {
+  .lr-dots {
+    display: flex;
+  }
+}
+.lr-dots span {
+  width: 0.6875rem;
+  height: 0.6875rem;
+  border-radius: 50%;
+}
+.lr-dots span:nth-child(1) {
+  background: oklch(0.68 0.19 25);
+}
+.lr-dots span:nth-child(2) {
+  background: oklch(0.82 0.16 82);
+}
+.lr-dots span:nth-child(3) {
+  background: oklch(0.75 0.19 145);
+}
+/*
+ * All four panels occupy the same grid cell, so the widget is always as tall as
+ * its tallest tab and switching from a two-bar chart to a six-bar one does not
+ * jolt the page under the reader's cursor. That rules out the `hidden` attribute
+ * Install uses, since preflight sets `display: none !important` on it and an
+ * element out of flow cannot size the cell. `visibility` hides the inactive
+ * panels while they still measure, and takes them out of the accessibility tree
+ * and the tab order; `inert` says the same thing to anything that disagrees.
+ */
+.lr-bench-panels {
+  display: grid;
+}
+.lr-bench-body {
+  grid-area: 1 / 1;
+  padding: 1.25rem;
+}
+.lr-bench-off {
+  visibility: hidden;
+}
+.lr-bench-note {
+  margin-top: 1.125rem;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: var(--lr-faint);
+}
+.lr-bench-foot {
+  padding: 0.75rem 1.25rem;
+  border-top: 1px solid var(--lr-rule-soft);
+  font-size: 0.8125rem;
+  color: var(--lr-faint);
+}
+
+/* Charts ------------------------------------------------------------------ */
+
+.lr-figure {
+  margin: 0;
+}
+.lr-figcaption {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--lr-rule);
+}
+.lr-figcaption b {
+  font-weight: 500;
+  color: var(--lr-ink);
+}
+.lr-figcaption span {
+  color: var(--lr-faint);
+}
+.lr-chart {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 0.75rem;
+}
+.lr-chart-label {
+  text-align: left;
+  font-weight: 400;
+  font-size: 0.8125rem;
+  color: var(--lr-dim);
+  padding: 0.3rem 1rem 0.3rem 0;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.lr-chart-cell {
+  width: 100%;
+  padding: 0.3rem 0;
+  vertical-align: middle;
+}
+.lr-track {
+  display: block;
+  height: 0.5rem;
+  background: var(--lr-track);
+  border-radius: 2px;
+}
+.lr-fill {
+  display: block;
+  height: 100%;
+  background: var(--lr-mark-dim);
+  border-radius: 0 2px 2px 0;
+  animation: lr-grow 800ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  animation-delay: 120ms;
+}
+.lr-fill-accent {
+  background: var(--lr-mark);
+}
+@keyframes lr-grow {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+}
+
+.lr-chart-value {
+  text-align: right;
+  font-family: var(--lr-mono);
+  font-size: 0.8125rem;
+  color: var(--lr-ink);
+  padding: 0.3rem 0 0.3rem 1rem;
+  white-space: nowrap;
+  vertical-align: middle;
+  font-variant-numeric: tabular-nums;
+}
+.lr-dot-track {
+  position: relative;
+}
+.lr-dot-span {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  background: var(--lr-mark-dim);
+}
+.lr-dot {
+  position: absolute;
+  top: 50%;
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: 50%;
+  background: var(--lr-mark-dim);
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 0 2px var(--lr-panel);
+}
+.lr-dot-accent {
+  background: var(--lr-mark);
+  z-index: 1;
+}
+.lr-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.25rem;
+  margin-top: 1rem;
+  font-size: 0.8125rem;
+  color: var(--lr-dim);
+}
+.lr-legend li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.lr-swatch {
+  width: 0.75rem;
+  height: 0.5rem;
+  border-radius: 2px;
+  background: var(--lr-mark-dim);
+}
+.lr-swatch-accent {
+  background: var(--lr-mark);
+}
+
+/* Cost -------------------------------------------------------------------- */
+
+/*
+ * The argument and the one chart that carries it sit side by side, because the
+ * divergence is the evidence for the paragraph next to it. The chart takes the
+ * same frame as the bar charts, a title over a rule and nothing else, so the page
+ * still reads as one set of figures rather than a borrowed card deck.
+ */
+.lr-cost {
+  display: grid;
+  gap: 3rem;
+}
+@media (min-width: 72rem) {
+  .lr-cost {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 34rem);
+    gap: 5rem;
+    align-items: start;
+  }
+}
+.lr-cost-figure {
+  margin: 0;
+  min-width: 0;
+}
+.lr-cost-title {
+  display: block;
+  text-wrap: balance;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--lr-ink);
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--lr-rule);
+  margin-bottom: 1rem;
+}
+.lr-cost-note {
+  margin-top: 0.875rem;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: var(--lr-faint);
+}
+
+/* The editor -------------------------------------------------------------- */
+
+.lr-surfaces {
+  display: grid;
+  gap: 1px;
+  background: var(--lr-rule-soft);
+  border: 1px solid var(--lr-rule);
+  border-radius: 4px;
+  overflow: hidden;
+}
+@media (min-width: 48rem) {
+  .lr-surfaces {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (min-width: 64rem) {
+  .lr-surfaces {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+.lr-surface {
+  background: var(--lr-panel);
+  padding: 1.25rem 1.25rem 1.5rem;
+}
+.lr-surface-icon {
+  color: var(--lr-cobalt);
+}
+.lr-surface-title {
+  margin-top: 0.875rem;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  letter-spacing: -0.008em;
+  text-wrap: balance;
+}
+.lr-surface-body {
+  margin-top: 0.4375rem;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: var(--lr-faint);
+}
+
+/* Footer ------------------------------------------------------------------ */
+
+.lr-footer {
+  display: grid;
+  gap: 2.5rem;
+}
+@media (min-width: 48rem) {
+  .lr-footer {
+    grid-template-columns: minmax(0, 1.6fr) repeat(3, minmax(0, 1fr));
+    gap: 3rem;
+  }
+}
+.lr-footer-brand {
+  font-weight: 500;
+  letter-spacing: -0.012em;
+}
+.lr-footer-tagline {
+  margin-top: 0.375rem;
+  max-width: 32ch;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: var(--lr-faint);
+}
+.lr-footer-title {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--lr-ink);
+}
+/*
+ * The links are list items rather than prose, so 2.5.8 asks 24px of them and a
+ * 13px line gives 17. The padding buys the height without moving the baselines,
+ * and the gap absorbs it so the column rhythm is unchanged.
+ */
+.lr-footer-links {
+  margin-top: 0.75rem;
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.8125rem;
+  color: var(--lr-dim);
+}
+.lr-footer-links a {
+  display: inline-block;
+  padding-block: 0.25rem;
+}
+.lr-footer-legal {
+  margin-top: 3.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--lr-rule-soft);
+  font-size: 0.8125rem;
+  color: var(--lr-faint);
+}
+
+/* ------------------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .lr-row,
+  .lr-b,
+  .lr-fill {
+    animation-duration: 1ms;
+    animation-delay: 0ms;
+  }
+  .lr-link,
+  .lr-action,
+  .lr-action-quiet,
+  .lr-dump-offset,
+  .lr-table tbody tr,
+  .lr-tab,
+  .lr-copy {
+    transition: none;
+  }
+}
