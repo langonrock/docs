@@ -1,0 +1,202 @@
+---
+title: Routing
+description: Every route in the app, what renders it, and how to add your own.
+icon: Route
+---
+
+The app uses the Next.js App Router. Everything under `src/app/` is a route; folders in parentheses
+are groups that do not appear in the URL.
+
+## Root layout
+
+```tsx title="src/app/layout.tsx"
+import { RootProvider } from 'fumadocs-ui/provider/next';
+import './global.css';
+import { Inter } from 'next/font/google';
+
+const inter = Inter({ subsets: ['latin'] });
+
+export default function Layout({ children }: LayoutProps<'/'>) {
+  return (
+    <html lang="en" className={inter.className} suppressHydrationWarning>
+      <body className="flex flex-col min-h-screen">
+        <RootProvider>{children}</RootProvider>
+      </body>
+    </html>
+  );
+}
+```
+
+Three things happen here and nowhere else:
+
+- **`RootProvider`** supplies theming, the search dialog, and the sidebar context. Every Fumadocs
+  component assumes it is present.
+- **`suppressHydrationWarning`** is required, not cosmetic. The theme is applied to `<html>` before
+  React hydrates, so server and client markup differ by design; without this, React logs a
+  hydration error on every load.
+- **`global.css`** is imported once, here. See [Styling](/docs/development/styling).
+
+The `lang="en"` attribute is hardcoded. Change it if the site's content language changes.
+
+## Layout options
+
+Both layouts pull their shared configuration from one function:
+
+```tsx title="src/lib/layout.shared.tsx"
+export function baseOptions(): BaseLayoutProps {
+  return {
+    nav: {
+      title: appName,
+    },
+    githubUrl: `https://github.com/${gitConfig.user}/${gitConfig.repo}`,
+  };
+}
+```
+
+`nav.title` accepts JSX, so a logo can replace the plain string. Both values come from
+`src/lib/shared.ts` and are [still scaffold placeholders](/docs/operations/configuration).
+
+## The two layouts
+
+```tsx title="src/app/(home)/layout.tsx"
+export default function Layout({ children }: LayoutProps<'/'>) {
+  return <HomeLayout {...baseOptions()}>{children}</HomeLayout>;
+}
+```
+
+```tsx title="src/app/docs/layout.tsx"
+export default function Layout({ children }: LayoutProps<'/docs'>) {
+  return (
+    <DocsLayout tree={source.getPageTree()} {...baseOptions()}>
+      {children}
+    </DocsLayout>
+  );
+}
+```
+
+`HomeLayout` is a navbar and nothing else — the landing page and any marketing pages live under
+`(home)`. `DocsLayout` adds the sidebar, built from `source.getPageTree()`, which is where
+`meta.json` ordering takes effect.
+
+## The docs page
+
+`src/app/docs/[[...slug]]/page.tsx` is an optional catch-all, so it serves both `/docs` and
+`/docs/any/depth`.
+
+```tsx title="src/app/docs/[[...slug]]/page.tsx"
+export default async function Page(props: PageProps<'/docs/[[...slug]]'>) {
+  const params = await props.params;
+  const page = source.getPage(params.slug);
+  if (!page) notFound();
+
+  const MDX = page.data.body;
+  const markdownUrl = getPageMarkdownUrl(page).url;
+
+  return (
+    <DocsPage toc={page.data.toc} full={page.data.full}>
+      <DocsTitle>{page.data.title}</DocsTitle>
+      <DocsDescription className="mb-0">{page.data.description}</DocsDescription>
+      <div className="flex flex-row gap-2 items-center border-b pb-6">
+        <MarkdownCopyButton markdownUrl={markdownUrl} />
+        <ViewOptionsPopover
+          markdownUrl={markdownUrl}
+          githubUrl={`https://github.com/${gitConfig.user}/${gitConfig.repo}/blob/${gitConfig.branch}/content/docs/${page.path}`}
+        />
+      </div>
+      <DocsBody>
+        <MDX components={getMDXComponents({ a: createRelativeLink(source, page) })} />
+      </DocsBody>
+    </DocsPage>
+  );
+}
+```
+
+Reading it top to bottom:
+
+- `params.slug` is `undefined` at `/docs` and an array of segments below it. `source.getPage()`
+  handles both.
+- `page.data.body` is the compiled MDX component.
+- The bordered row holds **`MarkdownCopyButton`** (copies the page as Markdown, fetched from the
+  `/llms.mdx` route) and **`ViewOptionsPopover`** (links to the raw Markdown and to the file on
+  GitHub). Both depend on [the LLM routes](/docs/development/llm-routes) being present.
+- The GitHub URL is assembled from `gitConfig` and `page.path` — `page.path` is the file path
+  relative to `content/docs`, so `content/docs/` is hardcoded here too.
+- `createRelativeLink(source, page)` is what makes `[text](./other.mdx)` resolve.
+
+### Static generation
+
+```tsx
+export async function generateStaticParams() {
+  return source.generateParams();
+}
+```
+
+Every page is rendered at build time. Adding content changes the build output, not the runtime.
+
+### Metadata
+
+```tsx
+export async function generateMetadata(props: PageProps<'/docs/[[...slug]]'>): Promise<Metadata> {
+  const page = source.getPage((await props.params).slug);
+  if (!page) notFound();
+
+  return {
+    title: page.data.title,
+    description: page.data.description,
+    openGraph: { images: getPageImageUrl(page).url },
+  };
+}
+```
+
+The OG image URL points at the generated image route. There is no root `metadata` export, so there
+is no site-wide title template or default description — worth adding to `src/app/layout.tsx` before
+launch.
+
+## Route reference
+
+| Route | File | Rendering |
+| --- | --- | --- |
+| `/` | `(home)/page.tsx` | Static |
+| `/docs/*` | `docs/[[...slug]]/page.tsx` | Static via `generateStaticParams` |
+| `/api/search` | `api/search/route.ts` | Dynamic — see [Search](/docs/development/search) |
+| `/llms.txt` | `llms.txt/route.ts` | Static (`revalidate = false`) |
+| `/llms-full.txt` | `llms-full.txt/route.ts` | Static (`revalidate = false`) |
+| `/llms.mdx/docs/*/content.md` | `llms.mdx/docs/[[...slug]]/route.ts` | Static |
+| `/og/docs/*/image.png` | `og/docs/[...slug]/route.tsx` | Static |
+
+`/api/search` is the only route that must run per request.
+
+## Adding a page outside the docs
+
+Put it in the `(home)` group to get the navbar layout without a sidebar:
+
+```tsx title="src/app/(home)/pricing/page.tsx"
+export default function Page() {
+  return <main className="container py-12">...</main>;
+}
+```
+
+That serves `/pricing`. For a page with neither layout, create it outside both groups and give it
+its own `layout.tsx`.
+
+## Layout variants
+
+`fumadocs-ui` ships several documentation layouts. Swapping one for another is a single import
+change in `src/app/docs/layout.tsx`:
+
+| Import | Style |
+| --- | --- |
+| `fumadocs-ui/layouts/docs` | Sidebar on the left, TOC on the right (current) |
+| `fumadocs-ui/layouts/notebook` | Sidebar plus a header row of tabs |
+| `fumadocs-ui/layouts/flux` | Alternative sidebar treatment |
+| `fumadocs-ui/layouts/glass` | Translucent, layered look |
+
+<Callout type="warn">
+  `glass` needs its stylesheet imported by hand. `fumadocs-ui/css/preset.css` pulls in the generated
+  CSS for `docs`, `notebook`, `flux`, `home`, and `shared` — but not `glass`. Switching to it
+  without adding `@import 'fumadocs-ui/css/generated/glass.css'` to `global.css` yields an unstyled
+  page.
+</Callout>
+
+Each layout also exposes slot exports (`.../slots/sidebar`, `.../slots/header`, `.../page/slots/toc`
+and so on) for replacing individual regions instead of the whole layout.

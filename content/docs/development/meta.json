@@ -1,0 +1,5 @@
+{
+  "title": "Development",
+  "icon": "Code",
+  "pages": ["source-api", "routing", "styling", "search", "llm-routes", "dependencies"]
+}

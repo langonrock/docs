@@ -1,0 +1,143 @@
+---
+title: Frontmatter
+description: The fields a page can declare, and which one is mandatory.
+icon: Hash
+---
+
+import { TypeTable } from 'fumadocs-ui/components/type-table';
+
+Every `.mdx` file under `content/docs/` starts with a YAML block. It is validated against
+`pageSchema` from `fumadocs-core/source/schema` — a Zod schema, so a violation is a build error,
+not a silent fallback.
+
+```mdx
+---
+title: Deploying
+description: How to ship this thing.
+icon: Rocket
+---
+```
+
+## Fields
+
+<TypeTable
+  type={{
+    title: {
+      type: 'string',
+      required: true,
+      description: 'Page title. Renders as the h1, the sidebar label, and the browser title.',
+    },
+    description: {
+      type: 'string',
+      description:
+        'Shown under the title, used as the meta description and in the generated OG image.',
+    },
+    icon: {
+      type: 'string',
+      description: 'A Lucide icon name, resolved by lucideIconsPlugin. Shown in the sidebar.',
+    },
+    full: {
+      type: 'boolean',
+      default: 'false',
+      description: 'Renders the page at full width, without the table-of-contents column.',
+    },
+    _openapi: {
+      type: 'object',
+      description: 'Reserved for the OpenAPI integration. Not used in this project.',
+    },
+  }}
+/>
+
+## `title`
+
+The only required field. Omitting it fails the build:
+
+```
+Invalid frontmatter in content/docs/guides/deploy.mdx
+```
+
+It is read in three places: `DocsTitle`, `generateMetadata()`, and `getLLMText()`, which prefixes
+every generated Markdown file with `# {title} ({url})`.
+
+## `description`
+
+Optional but worth always setting. It appears under the title, becomes the page's meta description,
+is rendered into the generated OG image, and gives search results something to show.
+
+## `icon`
+
+A [Lucide](https://lucide.dev/icons) icon name in PascalCase — `Rocket`, `FileText`, `Terminal`:
+
+```mdx
+---
+title: Deploying
+icon: Rocket
+---
+```
+
+This works because `src/lib/source.ts` registers the plugin:
+
+```ts title="src/lib/source.ts"
+export const source = loader({
+  baseUrl: docsRoute,
+  source: docs.toFumadocsSource(),
+  plugins: [lucideIconsPlugin()],
+});
+```
+
+An unknown name does not break the build. The plugin logs a warning and renders no icon:
+
+```
+[lucide-icons-plugin] Unknown icon detected: Rockett.
+```
+
+Icons on folders are set in `meta.json` instead — see [Navigation](/docs/writing/navigation).
+
+## `full`
+
+Drops the table-of-contents column and lets the content span the full width. Useful for pages that
+are mostly a wide table or diagram.
+
+```mdx
+---
+title: API Reference
+full: true
+---
+```
+
+It is read straight through to the page component:
+
+```tsx title="src/app/docs/[[...slug]]/page.tsx"
+<DocsPage toc={page.data.toc} full={page.data.full}>
+```
+
+## Adding your own fields
+
+`pageSchema` rejects nothing extra by default, but nothing types it either. To add a validated
+field, extend the schema in `src/lib/source.ts`:
+
+```ts title="src/lib/source.ts"
+import { z } from 'zod';
+import { pageSchema } from 'fumadocs-core/source/schema';
+
+const docs = defineDocs({
+  dir: 'content/docs',
+  docs: {
+    schema: pageSchema.extend({
+      author: z.string().optional(),
+    }),
+    postprocess: { includeProcessedMarkdown: true },
+  },
+  meta: { schema: metaSchema },
+});
+```
+
+The field is then available as `page.data.author`, fully typed, in any route that reads the source.
+`zod` is currently only a transitive dependency of `fumadocs-core`, so run `npm install zod` before
+importing it directly.
+
+<Callout type="warn">
+  `defineDocs` is expanded at build time by a bundler loader, so its arguments must be statically
+  analyzable. A schema built from an imported constant is fine; one assembled at runtime from a
+  variable is not. See [Source API](/docs/development/source-api).
+</Callout>

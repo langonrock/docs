@@ -1,13 +1,88 @@
 ---
-title: Hello World
-description: Your first document
+title: Overview
+description: A Fumadocs documentation site running on Next.js 16, and the manual for using and developing it.
+icon: House
 ---
 
-Welcome to the docs! You can start writing documents in `/content/docs`.
+langondocs is a documentation site built with [Fumadocs](https://fumadocs.dev) on top of the
+Next.js App Router. You write Markdown files in `content/docs/`, and the site turns them into a
+searchable, navigable, statically generated documentation site — plus a set of machine-readable
+endpoints that let AI tools read the same content as plain Markdown.
 
-## What is Next?
+These pages are that documentation. They describe this repository specifically: its versions, its
+file layout, and the parts of it that behave differently from what the upstream Fumadocs guides
+describe.
+
+## The stack
+
+| Package | Version | Notes |
+| --- | --- | --- |
+| `next` | 16.2.12 | App Router, pinned exactly |
+| `react` / `react-dom` | 19.2.8 | |
+| `fumadocs-core` | 16.14.0 | Content loader, search server, negotiation |
+| `fumadocs-mdx` | 15.2.1 | MDX compilation, Macro API |
+| `fumadocs-ui` | `@fumadocs/base-ui@16.14.0` | npm alias — see below |
+| `tailwindcss` | 4.3.3 | CSS-first, no config file |
+| `typescript` | 6.0.3 | |
+| `lucide-react` | 1.28.0 | Icons resolved from frontmatter |
+
+## Three things that will surprise you
+
+Most Fumadocs material online predates this stack. Three differences account for nearly every
+wrong answer you will find:
+
+<Callout type="warn" title="There is no source.config.ts">
+  This project uses the **Macro API**. Content collections are declared inline in
+  [`src/lib/source.ts`](/docs/development/source-api), not in a separate `source.config.ts`. If you
+  go looking for that file, you will not find it — and creating one will not do what you expect.
+</Callout>
+
+<Callout type="warn" title="fumadocs-ui is an alias">
+  `package.json` maps `fumadocs-ui` to `npm:@fumadocs/base-ui@16.14.0`. Import paths still read
+  `fumadocs-ui/...`, but the underlying primitives are [Base UI](https://base-ui.com), not Radix.
+  Component props sometimes differ from the Radix-era documentation.
+</Callout>
+
+<Callout type="warn" title="Search is zbsearch, not Orama">
+  `fumadocs-core` 16 replaced Orama with `zbsearch` as the default server engine. Orama survives
+  only as an optional static fallback, which this project does not use. See
+  [Search](/docs/development/search).
+</Callout>
+
+## Where to go
 
 <Cards>
-  <Card title="Learn more about Next.js" href="https://nextjs.org/docs" />
-  <Card title="Learn more about Fumadocs" href="https://fumadocs.dev" />
+  <Card
+    title="Getting Started"
+    description="Install, run, and find your way around the repository."
+    href="/docs/getting-started/installation"
+  />
+  <Card
+    title="Writing Content"
+    description="Author MDX pages, set frontmatter, use components, order the sidebar."
+    href="/docs/writing/mdx-basics"
+  />
+  <Card
+    title="Development"
+    description="Content loader, routes, styling, search, LLM endpoints, and dependencies."
+    href="/docs/development/source-api"
+  />
+  <Card
+    title="Operations"
+    description="Configuration, secrets and TLS, deployment, and troubleshooting."
+    href="/docs/operations/configuration"
+  />
 </Cards>
+
+## Known issues in the current checkout
+
+Three things the scaffold left behind, none of which fail the build:
+
+- **`appName` is `'My App'`** and **`gitConfig` points at `fuma-nama/fumadocs`** in
+  `src/lib/shared.ts`. They control the navbar title, the OG image label, and every "Open in GitHub"
+  link. See [Configuration](/docs/operations/configuration).
+- **`proxy.ts` is at the repository root**, but Next.js looks for it beside the app directory —
+  `src/proxy.ts` in this layout. Markdown content negotiation is inactive until it is moved. See
+  [LLM & Markdown Routes](/docs/development/llm-routes).
+- **`metadataBase` is unset**, so the build warns and OG image URLs cannot resolve to absolute URLs.
+  See [Deployment](/docs/operations/deployment).

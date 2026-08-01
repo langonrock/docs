@@ -1,0 +1,223 @@
+---
+title: Troubleshooting
+description: Symptoms, causes, and fixes for the failures this stack actually produces.
+icon: LifeBuoy
+---
+
+## Reset first
+
+Most content and type oddities are stale generated state. Before investigating anything:
+
+```bash
+rm -rf .next .source
+npm run dev
+```
+
+Both directories are gitignored and regenerated on the next run. This resolves a surprising share of
+"it worked yesterday" reports.
+
+## Content
+
+### A new page does not appear
+
+Check, in order:
+
+1. The file is under `content/docs/` and ends in `.mdx`.
+2. It has frontmatter with a `title` — the only required field.
+3. Its folder's `meta.json` lists it in `pages`, or that array contains `"..."`.
+
+The third is the common one. `pages` is exclusive: an unlisted page still builds and its URL still
+works, but nothing in the sidebar links to it. See [Navigation](/docs/writing/navigation).
+
+### `Invalid frontmatter in content/docs/...`
+
+The frontmatter failed `pageSchema`. Almost always a missing `title`, occasionally a type mismatch —
+`full: "true"` as a string instead of a boolean. See [Frontmatter](/docs/writing/frontmatter).
+
+### The sidebar is in the wrong order
+
+No `meta.json` in that folder, so entries sort alphabetically by filename. Add one with an explicit
+`pages` array.
+
+### Content is stale after an edit
+
+The watcher missed the change. Restart `npm run dev`; if it persists, delete `.source`.
+
+## Build
+
+### `Cannot find name 'PageProps'` (or `LayoutProps`, `RouteContext`)
+
+These are Next 16 globals written into `.next/types` by `next typegen`. Bare `tsc --noEmit` on a
+clean checkout cannot see them.
+
+```bash
+npm run types:check   # next typegen && tsc --noEmit
+```
+
+Always use the script.
+
+### `defineDocs` throws at runtime
+
+`defineDocs` is a compile-time marker, not a real function — reaching it at runtime means the macro
+transform never ran. Causes:
+
+- The file does not contain the literal string `'fumadocs-mdx/macro'`. The loader matches on that
+  text before transforming, so an aliased or re-exported import is invisible to it.
+- The arguments are not statically analyzable. `dir`, `files`, and `async` must be literals, not
+  variables or computed values.
+- The file lives outside the scanned globs (`**/*.{js,jsx,mjs,ts,tsx,mts}`, excluding
+  `node_modules`).
+
+Keeping the `defineDocs` call in `src/lib/source.ts` avoids all three. See
+[Source API](/docs/development/source-api).
+
+### The site builds but has no content
+
+Same root cause as above: the macro produced an empty collection. Check that `dir: 'content/docs'`
+is still a literal string and that the directory contains `.mdx` files.
+
+### `page.data.getText is not a function`
+
+`includeProcessedMarkdown` was removed from the `postprocess` options in `src/lib/source.ts`. It is
+what generates the processed Markdown that `getLLMText()` reads, so removing it breaks `/llms.txt`,
+`/llms-full.txt`, and `/llms.mdx/docs/*/content.md` at once.
+
+### `ShikiError: Language 'x' not found`
+
+A code fence uses a language Shiki does not have loaded, and it fails the build rather than
+degrading to plain text:
+
+```
+./content/docs/operations/environment.mdx
+ShikiError: Language `caddy` not found, you may need to load it first
+```
+
+Use a supported language, or `text` for anything exotic:
+
+````mdx
+```text title="Caddyfile"
+docs.example.com {
+  reverse_proxy 127.0.0.1:3000
+}
+```
+````
+
+`title="..."` keeps the label even without highlighting. Common languages — `bash`, `ts`, `tsx`,
+`js`, `json`, `css`, `yaml`, `mdx`, `nginx`, `docker` — are all available.
+
+### A component is not defined
+
+Only `Card`, `Cards`, `Callout`, and the `CodeBlockTabs` family are available without an import.
+Everything else needs an import at the top of the MDX file:
+
+```mdx
+import { Steps, Step } from 'fumadocs-ui/components/steps';
+```
+
+See [Components](/docs/writing/components).
+
+## Routes
+
+### `/og/docs/.../image.png` or `/llms.mdx/...` returns 404
+
+The route handler did not strip the synthetic trailing segment. Both routes append a fake filename
+to the slug and must remove it before the lookup:
+
+```ts
+const page = source.getPage(slug.slice(0, -1));
+```
+
+Without the `slice`, `getPage` searches for a page literally named `image.png`, finds nothing, and
+calls `notFound()`. See [Source API](/docs/development/source-api).
+
+### `/docs/page.md` returns a 404, and `Accept: text/markdown` returns HTML
+
+This is the current state of the project. `proxy.ts` is at the repository root, but the app
+directory is `src/app`, and Next.js resolves the proxy file relative to that — it looks for
+`src/proxy.ts`. The root file is never loaded, so neither rewrite runs.
+
+```bash
+git mv proxy.ts src/proxy.ts
+```
+
+Confirm with:
+
+```bash
+curl -s -o /dev/null -w '%{http_code} %{content_type}\n' http://localhost:3000/docs/writing/frontmatter.md
+# before: 404 text/html
+# after:  200 text/markdown
+```
+
+Note the raw-Markdown route itself (`/llms.mdx/docs/*/content.md`) works either way — it is a real
+route. Only the friendly URLs go through the proxy. See
+[LLM & Markdown Routes](/docs/development/llm-routes).
+
+### Markdown negotiation still does nothing after moving the file
+
+`isMarkdownPreferred()` reads the `Accept` header, and browsers send `text/html` first — serving
+HTML to a browser is correct behavior. Test with an explicit header:
+
+```bash
+curl -sI -H 'Accept: text/markdown' http://localhost:3000/docs/writing/frontmatter | grep -i vary
+```
+
+A `Vary: Accept` in the response means the proxy ran. If it is absent, the file is still not being
+loaded — check for a stray `middleware.ts`, which is a build error when a `proxy` file also exists.
+
+## Search
+
+### No results for new content
+
+The page is not in the source. Verify it renders at its URL first — if it does not, this is a
+content problem, not a search problem. If it does, restart the dev server so the index rebuilds.
+
+### Search results look stale
+
+Index records are cached per loader instance and rebuilt when the loader changes. In development a
+restart forces it; in production the index is built fresh on each deploy.
+
+### Advice from a guide does not apply
+
+Check whether it predates `fumadocs-core` 16. The search engine changed from Orama to `zbsearch`,
+and Orama-era configuration options do not exist anymore. See [Search](/docs/development/search).
+
+## Styling
+
+### The page renders unstyled
+
+Check the import order in `src/app/global.css`. The theme must come before the preset:
+
+```css
+@import 'tailwindcss';
+@import 'fumadocs-ui/css/neutral.css';
+@import 'fumadocs-ui/css/preset.css';
+```
+
+If you switched to the `glass` layout, its stylesheet is not part of `preset.css` and must be
+imported by hand — see [Routing](/docs/development/routing).
+
+### The page shifts sideways when search opens
+
+The two scrollbar rules at the bottom of `global.css` were removed. They compensate for
+`react-remove-scroll`'s scrollbar padding. Restore them — see [Styling](/docs/development/styling).
+
+### A hydration warning about the `<html>` element
+
+`suppressHydrationWarning` was removed from `src/app/layout.tsx`. The theme is applied before React
+hydrates, so the attribute is required, not cosmetic.
+
+## Icons
+
+### `[lucide-icons-plugin] Unknown icon detected: X`
+
+The `icon` value is not a [Lucide](https://lucide.dev/icons) icon name. Names are PascalCase —
+`FileText`, not `file-text`. The build continues and no icon renders.
+
+## Getting more detail
+
+```bash
+npm run build 2>&1 | tee build.log
+```
+
+Fumadocs reports the offending file path in almost every content error. Start there before reading
+the stack trace.

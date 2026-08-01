@@ -1,0 +1,123 @@
+---
+title: Project Structure
+description: What every file in the repository is for.
+icon: FolderTree
+---
+
+import { File, Folder, Files } from 'fumadocs-ui/components/files';
+
+## The tree
+
+<Files>
+  <Folder name="content/docs" defaultOpen>
+    <File name="*.mdx — your documentation pages" />
+    <File name="meta.json — sidebar title, order, icon" />
+  </Folder>
+  <Folder name="src/app" defaultOpen>
+    <File name="layout.tsx" />
+    <File name="global.css" />
+    <Folder name="(home)">
+      <File name="layout.tsx" />
+      <File name="page.tsx" />
+    </Folder>
+    <Folder name="docs">
+      <File name="layout.tsx" />
+      <File name="[[...slug]]/page.tsx" />
+    </Folder>
+    <Folder name="api/search">
+      <File name="route.ts" />
+    </Folder>
+    <Folder name="llms.txt">
+      <File name="route.ts" />
+    </Folder>
+    <Folder name="llms-full.txt">
+      <File name="route.ts" />
+    </Folder>
+    <Folder name="llms.mdx/docs/[[...slug]]">
+      <File name="route.ts" />
+    </Folder>
+    <Folder name="og/docs/[...slug]">
+      <File name="route.tsx" />
+    </Folder>
+  </Folder>
+  <Folder name="src/lib" defaultOpen>
+    <File name="source.ts" />
+    <File name="shared.ts" />
+    <File name="layout.shared.tsx" />
+    <File name="cn.ts" />
+  </Folder>
+  <Folder name="src/components">
+    <File name="mdx.tsx" />
+  </Folder>
+  <File name="proxy.ts" />
+  <File name="next.config.mjs" />
+  <File name="tsconfig.json" />
+  <File name="postcss.config.mjs" />
+  <File name="eslint.config.mjs" />
+  <File name="package.json" />
+  <File name="README.md" />
+  <File name="CLAUDE.md" />
+</Files>
+
+## Content
+
+`content/docs/` is the only place documentation lives. Every `.mdx` file becomes a page; every
+`meta.json` controls the sidebar for the folder it sits in. Nothing else in the repository needs to
+change when you add a page.
+
+## Library (`src/lib`)
+
+| File | Role |
+| --- | --- |
+| `source.ts` | Declares the content collection and exports `source`, the interface every route uses to read pages. Also exports the URL helpers for OG images and raw Markdown. |
+| `shared.ts` | Plain constants: `appName`, `docsRoute`, `docsImageRoute`, `docsContentRoute`, `gitConfig`. Single source of truth for routes — `proxy.ts` and `source.ts` both derive from it. |
+| `layout.shared.tsx` | `baseOptions()`, the layout props (navbar title, GitHub URL) shared by the home and docs layouts. |
+| `cn.ts` | Re-exports `cn` from `cnfast` for merging Tailwind classes. |
+
+<Callout title="cn.ts is currently unused">
+  Nothing under `src/` imports `@/lib/cn`. It is scaffold leftovers, kept here as-is. Worth deleting
+  along with the `cnfast` dependency if you never reach for it — but note `fumadocs-ui` depends on
+  `cnfast` internally, so removing the direct dependency does not remove the package.
+</Callout>
+
+## Routes (`src/app`)
+
+| Route | File | Purpose |
+| --- | --- | --- |
+| — | `layout.tsx` | Root layout: `RootProvider`, Inter font, `global.css` |
+| `/` | `(home)/page.tsx` | Landing page (still the scaffold placeholder) |
+| `/docs/*` | `docs/[[...slug]]/page.tsx` | The documentation pages |
+| `/api/search` | `api/search/route.ts` | Search endpoint |
+| `/llms.txt` | `llms.txt/route.ts` | Index of all pages, for LLMs |
+| `/llms-full.txt` | `llms-full.txt/route.ts` | Every page's Markdown, concatenated |
+| `/llms.mdx/docs/*/content.md` | `llms.mdx/docs/[[...slug]]/route.ts` | One page as raw Markdown |
+| `/og/docs/*/image.png` | `og/docs/[...slug]/route.tsx` | Generated Open Graph image |
+
+`(home)` is a route group: the parentheses keep it out of the URL, so `(home)/page.tsx` serves `/`.
+It exists to give the landing page a different layout from the docs.
+
+[Routing](/docs/development/routing) covers each of these in detail.
+
+## Components
+
+`src/components/mdx.tsx` exports `getMDXComponents()`, which merges Fumadocs' default MDX component
+set with any overrides. This is where you register a component so it becomes available in every MDX
+file without an import — see [Components](/docs/writing/components).
+
+## Root files
+
+| File | Purpose |
+| --- | --- |
+| `proxy.ts` | Next 16's renamed middleware. Rewrites docs URLs to raw Markdown based on the `Accept` header or a `.md` suffix. **Currently inactive — see below.** |
+| `next.config.mjs` | Wraps the config in `createMDX()`, which drives all MDX compilation. |
+| `tsconfig.json` | Strict mode, `@/*` → `./src/*`, includes Next's generated types. |
+| `postcss.config.mjs` | Single plugin: `@tailwindcss/postcss`. |
+| `eslint.config.mjs` | Flat config extending `eslint-config-next/core-web-vitals`. |
+| `CLAUDE.md` | Behavioral guidelines for AI coding assistants working in this repository. Not project documentation. |
+
+<Callout type="error" title="proxy.ts is in the wrong place">
+  Next.js resolves the proxy file relative to the app directory. Because this project uses
+  `src/app`, it looks for `src/proxy.ts` — the root copy is never loaded, and Markdown content
+  negotiation silently does nothing. `git mv proxy.ts src/proxy.ts` fixes it. See
+  [LLM & Markdown Routes](/docs/development/llm-routes).
+</Callout>

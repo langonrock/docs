@@ -1,0 +1,158 @@
+---
+title: Styling
+description: Tailwind v4, the theme system, and the two rules you should not delete.
+icon: Palette
+---
+
+## Tailwind v4, CSS-first
+
+There is no `tailwind.config.js` and there should not be one. Tailwind v4 is configured in CSS,
+and the PostCSS setup is a single plugin:
+
+```js title="postcss.config.mjs"
+const config = {
+  plugins: {
+    '@tailwindcss/postcss': {},
+  },
+};
+
+export default config;
+```
+
+Content scanning is automatic in v4 — no `content` array to maintain. Utility classes used in MDX
+files are picked up along with everything else.
+
+## `global.css`
+
+The entire stylesheet, imported once by `src/app/layout.tsx`:
+
+```css title="src/app/global.css"
+@import 'tailwindcss';
+@import 'fumadocs-ui/css/neutral.css';
+@import 'fumadocs-ui/css/preset.css';
+
+html {
+  scrollbar-gutter: stable;
+}
+
+html > body[data-scroll-locked] {
+  margin-right: 0px !important;
+  --removed-body-scroll-bar-size: 0px !important;
+}
+```
+
+<Callout type="warn" title="Import order matters">
+  The theme (`neutral.css`) must come **before** the preset. The theme defines the `--color-fd-*`
+  custom properties; the preset consumes them. Reversing the two lines produces a page styled with
+  fallback values.
+</Callout>
+
+`preset.css` pulls in the base styles, the Shiki syntax-highlighting styles, the typography plugin,
+and the generated CSS for the `flux`, `docs`, `home`, `notebook`, and `shared` layouts.
+
+## The two scrollbar rules
+
+These look like noise and are not. `react-remove-scroll` — used internally by the search dialog and
+the mobile sidebar — locks body scroll by adding padding equal to the scrollbar width, which makes
+the page visibly jump sideways when a dialog opens.
+
+`scrollbar-gutter: stable` reserves the space permanently, and the `[data-scroll-locked]` rule
+cancels the compensation the library adds. Together they keep the layout still. Deleting either
+brings back the jump.
+
+## Switching theme
+
+Replace the theme import in `global.css`:
+
+```css
+@import 'fumadocs-ui/css/dusk.css';
+```
+
+Twelve themes ship with the package: `neutral` (current), `aspen`, `black`, `catppuccin`, `dusk`,
+`emerald`, `ocean`, `purple`, `ruby`, `shadcn`, `solar`, `vitepress`.
+
+## Custom colors
+
+A theme is a set of CSS custom properties, defined for light mode on `:root` and for dark mode
+under `.dark`. Override any of them after the imports:
+
+```css title="src/app/global.css"
+@import 'tailwindcss';
+@import 'fumadocs-ui/css/neutral.css';
+@import 'fumadocs-ui/css/preset.css';
+
+:root {
+  --color-fd-primary: hsl(220, 90%, 56%);
+  --color-fd-background: hsl(0, 0%, 100%);
+}
+
+.dark {
+  --color-fd-primary: hsl(220, 90%, 66%);
+}
+```
+
+The full set:
+
+| Variable | Applies to |
+| --- | --- |
+| `--color-fd-background` / `-foreground` | Page background and body text |
+| `--color-fd-muted` / `-foreground` | Subdued surfaces and secondary text |
+| `--color-fd-popover` / `-foreground` | Popovers, dropdowns, the search dialog |
+| `--color-fd-card` / `-foreground` | Cards |
+| `--color-fd-primary` / `-foreground` | Accents, active states, links |
+| `--color-fd-secondary` / `-foreground` | Secondary buttons and surfaces |
+| `--color-fd-accent` / `-foreground` | Hover states |
+| `--color-fd-border` | All borders |
+| `--color-fd-ring` | Focus rings |
+| `--color-fd-overlay` | Modal backdrops |
+
+These are Tailwind v4 color variables, so they are also available as utilities — `bg-fd-card`,
+`text-fd-muted-foreground`, `border-fd-border` — in both components and MDX.
+
+## Dark mode
+
+Handled by `next-themes` through `RootProvider`, which toggles a `.dark` class on `<html>`. The
+theme switch in the navbar is part of the layout; nothing needs wiring. This is why
+`suppressHydrationWarning` is on the `<html>` element in the root layout — see
+[Routing](/docs/development/routing).
+
+## Fonts
+
+Inter, loaded through `next/font/google` in the root layout and applied as a class on `<html>`:
+
+```tsx title="src/app/layout.tsx"
+const inter = Inter({ subsets: ['latin'] });
+```
+
+To change it, swap the import and the call. To use two fonts (body and monospace), load both and
+map them to CSS variables:
+
+```tsx
+const inter = Inter({ subsets: ['latin'], variable: '--font-sans' });
+const mono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mono' });
+
+<html className={`${inter.variable} ${mono.variable}`}>
+```
+
+Then point Tailwind's font stack at them in `global.css`:
+
+```css
+@theme {
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+}
+```
+
+Note that `subsets: ['latin']` does not cover every accented character used in some languages —
+extend the subsets if the content needs them.
+
+## Styling inside MDX
+
+Tailwind utilities work in MDX because it is JSX:
+
+```mdx
+<div className="rounded-lg border p-4 bg-fd-card">Styled block.</div>
+```
+
+Prose styling comes from the typography plugin loaded by `preset.css`, so ordinary Markdown needs no
+classes. Reach for utilities only when a component genuinely needs custom layout.
