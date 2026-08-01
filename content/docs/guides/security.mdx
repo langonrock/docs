@@ -1,0 +1,144 @@
+---
+title: Tokens and TLS
+description: How the server authenticates, and what it refuses to do.
+icon: ShieldCheck
+---
+
+Two rules, both enforced at startup rather than per request:
+
+1. Binding TCP requires tokens, including on `127.0.0.1`.
+2. Binding anything past loopback requires TLS.
+
+A unix socket is exempt from both. File permissions already decide who may connect to it, and it is
+the only transport allowed to run unauthenticated.
+
+## Minting a token
+
+The password is a bearer token in `<data>/tokens.json`. Mint one rather than inventing it, because
+that token is the whole of the authentication.
+
+```sh
+langonrock token --data ~/okf/data --tenant acme            # read-only
+langonrock token --data ~/okf/data --tenant acme --write    # may edit source
+```
+
+```
+9f3c1e…  (64 hex characters, on stdout so you can capture it)
+recorded a read-only grant for acme in ~/okf/data/tokens.json. A running
+server reads that file only at startup, so restart it before the token works
+```
+
+A token is 32 random bytes in hex. The command appends to the file, keeps whatever is already in
+it, and leaves it at mode `600`.
+
+```sh
+TOKEN=$(langonrock token --data ~/okf/data --tenant acme --write)
+```
+
+## The file
+
+You can still write it by hand. A bare string is a read-only grant, and an object opts a token into
+writing.
+
+```json
+{
+  "read-only": "acme",
+  "editor-token": { "tenant": "acme", "write": true }
+}
+```
+
+Writing is opt-in per token and visible in the file, because a token that can rewrite someone's
+knowledge should not look identical to one that can read it.
+
+<Callout type="warn" title="Tokens are read once, at startup">
+  Adding one or revoking one by editing the file changes nothing until the server restarts. A token
+  you believe you have withdrawn keeps working until then.
+</Callout>
+
+## The token decides the tenant
+
+The tenant in the URL path is never trusted. The server resolves the tenant from the token and
+checks that the path agrees, so both shapes work and the path segment is convenience rather than
+authorization.
+
+```
+GET /v1/manifest            tenant comes from the token
+GET /v1/acme/manifest       same, and the path must agree with the token
+```
+
+A token pointed at another tenant gets 403, not a silent read of the wrong data.
+
+| Status | Cause                                              |
+| ------ | -------------------------------------------------- |
+| 401    | Missing or unknown bearer token                    |
+| 403    | The path names a tenant the token does not grant   |
+| 403    | A write attempted with a read-only token           |
+
+With no tokens at all, the server is on a unix socket, so the path must name the tenant and that
+caller may write.
+
+## TLS
+
+A bearer token is only as private as the connection carrying it, so anything past loopback needs a
+certificate.
+
+```sh
+langonrock serve --data ~/okf/data --host 0.0.0.0 --port 7777 \
+  --tls-cert /etc/langonrock/fullchain.pem \
+  --tls-key /etc/langonrock/privkey.pem
+```
+
+```sh
+langonrock query "okf+https://knowledge.example.com:7777?token=$TOKEN" manifest
+```
+
+`--tls-cert` and `--tls-key` must be given together, and neither works with a unix socket, which
+has no TLS to speak of.
+
+## What it refuses
+
+Bind a public address in cleartext and the server says so instead of starting:
+
+```
+refusing to serve 0.0.0.0 without tls: every request would carry its token in
+cleartext. Pass tls, or bind 127.0.0.1 and terminate tls in a proxy in front
+```
+
+Bind TCP with an empty `tokens.json`:
+
+```
+refusing to listen on TCP without tokens: pass tokens or use a unix socket
+```
+
+Both shapes of TLS are fine. Terminate it in langonrock, or bind loopback and let nginx or Caddy do
+it in front. What the server will not do is put your token on the wire in the clear.
+
+`127.0.0.1`, `::1` and `localhost` count as loopback. Nothing else does.
+
+## Limits on writes
+
+| Limit               | Value       | What happens past it                          |
+| ------------------- | ----------- | --------------------------------------------- |
+| Concept size        | 1,000,000 B | 413, after the body is read and dropped       |
+| Request body        | 8,000,000 B | Refused by the transport                      |
+| Concept path        | 200 chars   | Rejected, since Windows caps a path at 260    |
+
+The size check runs after reading the body rather than from `content-length` before it. Answering
+while the body is still arriving leaves those bytes on a keep-alive connection, where the next
+request reads them as its own headers and hangs instead of being told what went wrong.
+
+## Path validation
+
+A concept path arrives from a network client and reaches the filesystem, so every shape that could
+escape the bundle is rejected outright rather than cleaned up:
+
+- forward slashes only, no backslashes and no null bytes
+- relative, never starting with `/`
+- must end in `.md`
+- each segment matches `[a-z0-9][a-z0-9._-]*`, so no segment starts with a dot
+
+The leading-dot rule has a second reason. The watcher ignores dot directories, so a concept written
+there would never be compiled and the write would look like it worked.
+
+Bundle names and tenant ids are validated the same way, against an allowlist, because both become
+directories.

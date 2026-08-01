@@ -1,0 +1,87 @@
+---
+title: Large tenants
+description: When the manifest stops being worth reading whole, and what to do instead.
+icon: Scaling
+---
+
+The manifest costs around 40 tokens per concept, so it stops being worth reading whole somewhere
+past a few thousand of them.
+
+Narrow instead of paginating.
+
+```ts
+await connection.manifest('sales'); // one bundle
+await connection.search('orders', { bundle: 'ops' }); // rank within one bundle
+```
+
+## Why a bundle slice is cheap
+
+The snapshot groups rows by bundle, so one bundle is a contiguous run of lines. The reader hands
+back a byte range without parsing or reassembling anything, and it splits the manifest once per
+reader rather than per call.
+
+| Concepts         |    500 |   5,000 |  20,000 |
+| ---------------- | -----: | ------: | ------: |
+| Whole manifest   | 20,549 | 205,851 | 835,922 |
+| One bundle slice | 20,549 |  20,419 |  20,486 |
+| Snapshot on disk | 0.5 MB |  5.0 MB | 20.1 MB |
+
+The slice stays flat as the tenant grows. That is the whole trick: a 20,000-concept tenant costs
+20,486 tokens to read one bundle of it, against 835,922 for all of it.
+
+## Which to reach for
+
+| You know                        | Use                                  |
+| ------------------------------- | ------------------------------------ |
+| The domain                      | `manifest(bundle)`                   |
+| Nothing, but you have a question | `search(query)`                     |
+| The domain and the question     | `search(query, { bundle })`          |
+| The exact ids                   | `get(ids)`, skip the manifest        |
+
+## Search stays narrow on purpose
+
+BM25 returns the top `k`, then a deterministic one-hop expansion over the link graph adds concepts
+the hits point at. That is usually where the join partner, the parent dataset or the metric
+definition lives, and finding it costs no model call.
+
+The expansion is capped at `k` and ranked by how many hits point at a target.
+
+<Callout type="warn" title="The cap is not optional">
+  The first version expanded every link of every hit. On the Stack Overflow sample one dataset row
+  links to sixteen tables, so eight hits became twenty-six rows, which is most of the manifest.
+  Search that does not narrow is worse than reading the manifest, because it costs a round trip to
+  learn nothing. The cap took `--k 3` from 85% of the manifest down to 31%.
+</Callout>
+
+Pass `expand: false` to turn it off entirely when you want exactly the ranked hits.
+
+## Latency is not where the problem is
+
+Median milliseconds, on one machine:
+
+| Operation                    |   500 | 5,000 | 20,000 |
+| ---------------------------- | ----: | ----: | -----: |
+| Compile and write a snapshot |    32 |   211 |    782 |
+| Open a snapshot, cold        |  0.54 |  3.74 |   16.3 |
+| Read the manifest, warm      | &lt;0.01 | &lt;0.01 | &lt;0.01 |
+| Batched `get` of 3 sections  |  0.07 |  0.08 |   0.08 |
+| Build the BM25 index         |    29 |   251 |  1,047 |
+| BM25 query                   |  0.14 |  1.38 |   7.09 |
+
+`get` is flat. Batching a fetch costs the same on a tenant of twenty thousand concepts as on one of
+five hundred.
+
+None of this is where the time goes, though. One saved model round trip is worth about a second,
+four orders of magnitude more than any row above. Optimize round trips, not milliseconds.
+
+## Memory is the real ceiling
+
+The index is rebuilt in memory once per snapshot and cached by digest. At 20,000 concepts, peak
+process memory landed between 0.9 and 1.2 GB across runs. That is the practical limit on how many
+large tenants one daemon can hold, and it is the number to watch before any of the latencies above.
+
+## Sharding past that
+
+The design's own break point for a single manifest is around 2,000 concepts, call it 25k tokens.
+Past that, split by domain into separate bundles and let a small domain-level index stay cached,
+then load the bundle manifest. Still two hops.

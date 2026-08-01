@@ -1,5 +1,0 @@
-{
-  "title": "Operations",
-  "icon": "Settings",
-  "pages": ["configuration", "environment", "deployment", "troubleshooting"]
-}

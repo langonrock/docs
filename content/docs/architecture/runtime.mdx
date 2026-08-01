@@ -1,0 +1,130 @@
+---
+title: Runtime and distribution
+description: Why Bun, what it forced, and what shipping a signed binary actually costs.
+icon: Cpu
+---
+
+## The workload barely involves the language
+
+Look at what runs on the hot path. Read a file region, slice bytes, write to a socket. Hash on
+write, zstd decompress, HTTP, filesystem watching.
+
+Almost all of that is I/O or work delegated to native code, with essentially no CPU-bound
+JavaScript. The bottleneck is syscalls. This is exactly the profile where the gap between Go and
+Bun disappears into noise.
+
+## Bun
+
+`bun build --compile` produces a self-contained executable with the runtime embedded.
+Cross-compilation covers all six targets, including `bun-windows-arm64`, added in 2026.
+
+```sh
+bun build --compile --target=bun-windows-arm64 ./src/cli.ts --outfile langonrock.exe
+```
+
+Binary size runs about 60 MB against 10 to 15 MB for Go. Noticeable for a CLI, not fatal.
+
+**In favor:**
+
+- The MCP TypeScript SDK is the most mature of the three, and this project ships an MCP server
+- LangGraph JS shares types with the client, so one schema and no drift
+- `bun:sqlite` is built in, which is exactly the fallback plan if analytical queries appear
+- Development speed, which matters on a project that will change shape several times
+
+**Against:**
+
+- 60 MB per target
+- Windows is Bun's newest platform, and Windows is already where the storage traps live. Stacking
+  the least-proven runtime there is the objection worth taking seriously.
+- A long-lived daemon under GC needs more care in JS than in Go
+- Bun moves fast and occasionally breaks things, which weighs more on a data layer meant to last
+
+## One design change Bun forces
+
+The `Bun.mmap` docs state plainly that deleting or truncating the file will crash Bun.
+
+That collides with the collector deleting old snapshots. If a reader has the file mapped, you do
+not get an error, you lose the process. POSIX makes deleting a mapped file safe. Bun gives no such
+guarantee.
+
+The fix is to not use mmap at all, and it is right regardless of language. A 6k-token manifest is
+about 25 KB, so reading it takes microseconds. `Bun.file().slice(offset, len)` gives a lazy byte
+range that streams to the socket without copying into the JS heap.
+
+mmap only pays at a scale this project does not reach, and here it imports real risk for nothing.
+
+## Go, for comparison
+
+`GOOS=windows GOARCH=amd64 go build`, with `CGO_ENABLED=0` so you keep static binaries and avoid
+glibc versus musl problems. Six targets cover everything.
+
+**The decision:** if the stack is TypeScript, use Bun. Choose Go instead if Windows is a
+first-class target with paying users from day one, because of maturity on the platform where
+storage is most treacherous.
+
+Rust is a legitimate third option if you want tighter control over zero-copy reads. `memmap2`
+covers all three platforms well. Given the decision to drop mmap, that advantage mostly evaporates.
+
+## The insurance that makes this reversible
+
+Write the on-disk format specification as its own document, separate from the implementation. The
+`.tnt` layout, section ordering, hash algorithm, naming scheme.
+
+The format is the durable artifact and the reader is disposable. If Bun disappoints as a daemon in
+two years, rewrite the reader in Go against the same bytes and nobody migrates anything.
+
+## Distribution
+
+A tag matching `v*` builds six binaries, checksums them, and publishes a GitHub Release.
+`install.sh` detects OS and architecture, verifies the checksum, and drops the binary in
+`~/.local/bin`.
+
+The release refuses to run when the tag disagrees with `package.json`, which is the cheapest guard
+against publishing a binary whose `--version` lies.
+
+### The matrix is split by runner, not by convenience
+
+Bun cross-compiles all six targets from any host, so one Linux job would be the obvious shape. It
+does not work. The codesign defect below applies to *any* darwin output, including one
+cross-compiled from Linux, and `codesign` exists only on macOS.
+
+So the two darwin targets build on `macos-latest` and the other four on `ubuntu-latest`. A
+single-runner matrix would ship macOS binaries that die on launch with no error.
+
+## Signing arrives earlier than expected
+
+Apple Silicon does not merely warn about unsigned binaries, it refuses to run them. The kernel
+sends SIGKILL before any code executes, so a broken signature looks like a program that produces no
+output and exits 137.
+
+Bun 1.3.12 walks straight into this. It writes a truncated `LC_CODE_SIGNATURE` on macOS arm64, so
+every `bun build --compile` output is dead on arrival, and `codesign` rejects the file outright
+with "invalid or unsupported format for signature". Removing the broken signature and re-signing
+ad-hoc is the only fix that holds. `scripts/build.ts` does this automatically on darwin.
+
+<Callout type="warn" title="The practical lesson">
+  The runtime choice carries platform risk beyond the obvious. This was macOS, the platform assumed
+  to be safe, not Windows.
+</Callout>
+
+## What proper signing costs
+
+A binary downloaded through a browser hits Gatekeeper on macOS, which blocks it without a Developer
+ID and notarization at 99 USD per year. Windows SmartScreen warns without a code signing
+certificate, a few hundred USD per year.
+
+`brew install` and `curl | sh` bypass macOS quarantine, and `scoop` or `winget` soften it on
+Windows. If the audience is developers, start with those channels and defer signing. For anything
+wider, budget it now.
+
+The published binaries carry an ad-hoc signature only. That is enough for the kernel to run them,
+and not enough for Gatekeeper to accept one downloaded through a browser. `install.sh` avoids that
+path, which is the reason to prefer it over clicking a release asset.
+
+Install channels beyond this, a Homebrew tap for macOS and Linux, Scoop or winget for Windows, are
+not built.
+
+## References
+
+- [Bun single-file executables](https://bun.com/docs/bundler/executables)
+- [Bun.mmap API reference](https://bun.com/reference/bun/mmap)

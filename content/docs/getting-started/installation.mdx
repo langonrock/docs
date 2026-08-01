@@ -1,96 +1,102 @@
 ---
 title: Installation
-description: Prerequisites, first run, and what the build generates.
+description: Install the binary, or run from source with Bun.
 icon: Download
 ---
 
-import { Steps, Step } from 'fumadocs-ui/components/steps';
+## The install script
 
-## Prerequisites
-
-**Node.js.** The project has no `engines` field and no `.nvmrc`, so nothing enforces a version.
-Next.js 16 requires Node 20.9 or newer; this project is developed on Node 24.
-
-**npm.** `package-lock.json` (lockfile version 3) is the only lockfile in the repository. There is
-no `pnpm-lock.yaml`, `yarn.lock`, or `bun.lockb`. Use npm unless you intend to migrate the whole
-project, since installing with another package manager produces a second lockfile that will drift.
-
-## First run
-
-<Steps>
-<Step>
-
-### Install dependencies
-
-```bash
-npm install
+```sh
+curl -fsSL https://raw.githubusercontent.com/langonrock/langonrock/main/install.sh | sh
 ```
 
-</Step>
-<Step>
+It detects the operating system and architecture, verifies the checksum, and drops the binary in
+`~/.local/bin`. Two environment variables change what it does:
 
-### Start the dev server
+| Variable              | Effect                                    |
+| --------------------- | ----------------------------------------- |
+| `LANGONROCK_VERSION`  | Install this tag instead of the latest    |
+| `LANGONROCK_BIN`      | Install here instead of `~/.local/bin`    |
 
-```bash
-npm run dev
-```
+The script covers `darwin` and `linux` on `x64` and `arm64`. On Windows, download the `.exe` from
+the releases page.
 
-</Step>
-<Step>
-
-### Open the site
-
-Visit [http://localhost:3000](http://localhost:3000) for the landing page, or
-[http://localhost:3000/docs](http://localhost:3000/docs) for the documentation.
-
-</Step>
-</Steps>
-
-Edits to files under `content/docs/` are picked up without restarting — a file watcher regenerates
-the content index and Next.js hot-reloads the page.
-
-## What the first run generates
-
-Three directories appear that are not in version control. All three are listed in `.gitignore`, and
-deleting them is always safe.
-
-| Path | Created by | Contents |
-| --- | --- | --- |
-| `.source/` | `createMDX()` in `next.config.mjs` | Generated content index (`server.ts`, `dynamic.ts`, `browser.ts`) |
-| `.next/` | Next.js | Build output, generated route types |
-| `next-env.d.ts` | Next.js | Ambient type declarations |
-
-<Callout title="There is no postinstall script">
-  Older Fumadocs templates ran the `fumadocs-mdx` CLI on `postinstall` to generate `.source`. This
-  project does not. Generation happens inside `createMDX()` when Next.js starts, which means
-  `.source` will not exist until you have run `npm run dev` or `npm run build` at least once. The
-  CLI still ships in `node_modules/fumadocs-mdx/bin.js`, but nothing here invokes it.
+<Callout type="warn" title="While the repository is private">
+  Anonymous download does not work. `install.sh` falls back to an authenticated `gh release
+  download`, so install the GitHub CLI and run `gh auth login` first, or grab the asset from the
+  releases page by hand.
 </Callout>
 
-## Verifying the install
+## Prefer the script over clicking a release asset
 
-```bash
-npm run lint         # ESLint, flat config
-npm run types:check  # next typegen, then tsc --noEmit
-npm run build        # full production build
+The published binaries carry an ad-hoc signature only. That is enough for the kernel to run them
+and not enough for Gatekeeper to accept one downloaded through a browser. `install.sh` and
+`brew install` bypass macOS quarantine, so they avoid the path where a working binary looks broken.
+
+Apple Silicon does not warn about an unsigned binary, it refuses to run it. The kernel sends
+SIGKILL before any code executes, which surfaces as a program that produces no output and exits
+137.
+
+## From source
+
+langonrock needs [Bun](https://bun.com) 1.3 or newer. There is no Node fallback for the store
+itself, because it uses `Bun.file`, `Bun.Glob`, `Bun.YAML` and zstd.
+
+```sh
+git clone https://github.com/langonrock/langonrock
+cd langonrock
+bun install
+bun src/cli.ts --help
 ```
 
-`types:check` runs `next typegen` first on purpose. The application uses Next 16's generated global
-types — `PageProps<'/docs/[[...slug]]'>`, `LayoutProps<'/'>`, `RouteContext<'/og/docs/[...slug]'>` —
-which only exist after typegen has written them into `.next/types`. Running bare `tsc --noEmit`
-fails with "Cannot find name 'PageProps'".
+`bun install` pulls two runtime dependencies and the development toolchain. The `bin` entry points
+straight at `src/cli.ts`, so there is no build step before running it.
 
-## Next
+## Building a binary
 
-<Cards>
-  <Card
-    title="Project Structure"
-    description="What every file in the repository is for."
-    href="/docs/getting-started/project-structure"
-  />
-  <Card
-    title="Daily Workflow"
-    description="Scripts, checks, and commit conventions."
-    href="/docs/getting-started/workflow"
-  />
-</Cards>
+```sh
+bun run build --target=bun-darwin-arm64
+```
+
+`scripts/build.ts` wraps `bun build --compile`. On darwin it also strips the signature Bun writes
+and re-signs ad-hoc, which is required rather than cosmetic: Bun 1.3.12 emits a truncated
+`LC_CODE_SIGNATURE` on macOS arm64, and the resulting file is dead on arrival without it.
+
+Six targets are supported: `linux-x64`, `linux-arm64`, `darwin-x64`, `darwin-arm64`, `windows-x64`,
+`windows-arm64`. A binary runs about 60 MB, since the Bun runtime is embedded in it.
+
+## Where the store lives
+
+Without `--data`, langonrock uses the platform data directory.
+
+| Platform | Directory                                                     |
+| -------- | ------------------------------------------------------------- |
+| Linux    | `$XDG_DATA_HOME/langonrock`, falling back to `~/.local/share/langonrock` |
+| macOS    | `~/Library/Application Support/langonrock`                     |
+| Windows  | `%LOCALAPPDATA%\langonrock`                                    |
+
+Precedence is `--data`, then `$LANGONROCK_DATA`, then the platform directory. An embedded
+connection string with no path means the same thing, so `okf://?tenant=acme` reads the default
+store.
+
+## Checking the install
+
+```sh
+langonrock --version
+langonrock --help
+```
+
+## Development
+
+```sh
+bun run lint
+bun run format:check
+bun run typecheck
+bun test
+```
+
+Those four commands are exactly what CI runs, on Linux, macOS and Windows, with `fail-fast`
+disabled so one platform failing still reports the others. Commits go through commitlint with the
+conventional-commit config, and `lint-staged` runs ESLint and Prettier on staged files. Pushing a `v*` tag cross-compiles six binaries,
+checksums them, and publishes a release. The release job refuses to run when the tag disagrees with
+`package.json`, which is the cheapest guard against publishing a binary whose `--version` lies.

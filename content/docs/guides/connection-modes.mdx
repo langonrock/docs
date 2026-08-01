@@ -1,0 +1,119 @@
+---
+title: Connection modes
+description: One interface over an embedded path, a local daemon, or a remote server, selected by the scheme.
+icon: Plug
+---
+
+The scheme picks the mode, and `open(dsn)` returns the same interface for all of them. Develop
+embedded, deploy remote, change nothing at the call site.
+
+```
+okf:///var/data?tenant=acme            embedded, direct file access
+okf+unix:///tmp/okf.sock?tenant=acme   local daemon over a unix socket
+okf+http://host:7777?token=...         remote, tenant resolved from the token
+okf+https://host:7777?token=...        the same over tls
+okf+npipe://./pipe/okf                 parsed, not implemented, see below
+```
+
+## Embedded
+
+The process opens the store directory itself. No network, fastest, and it needs the Bun runtime
+because it touches the filesystem.
+
+```
+okf:///var/data?tenant=acme
+okf://?tenant=acme                     the platform data directory
+```
+
+An embedded connection string with no path means the default store, exactly as an absent `--data`
+does. The `tenant` parameter is required, since one store holds many tenants.
+
+Each embedded connection caches readers and search indexes per tenant, so repeated calls in one
+process do not reopen the snapshot.
+
+## Local daemon
+
+A unix socket on Linux and macOS. Several clients share one process holding warm indexes, so no
+agent invocation pays cold start.
+
+```
+okf+unix:///tmp/okf.sock?tenant=acme
+```
+
+This is usually what you want locally. The socket still speaks HTTP underneath, and it is the only
+transport allowed to run unauthenticated, because file permissions already decide who may connect.
+
+## Remote
+
+```
+okf+http://127.0.0.1:7777?token=secret
+okf+https://knowledge.example.com:7777?token=secret
+```
+
+The token identifies the tenant, so `?tenant=` is optional here. A remote connection over `http`
+is only accepted by a server bound to loopback. Anything else needs `https`. See [Tokens and
+TLS](/docs/guides/security).
+
+## The tenant belongs to the connection
+
+Not to each call. Embedded and socket connections name it in the connection string because one
+store holds many tenants. A remote connection can leave it out, because the token already
+identifies one.
+
+## Windows paths
+
+`new URL()` handles Windows paths badly in two different ways. `okf://C:\data` is rejected
+outright, and `okf://C:/data` parses "successfully" with the drive letter as the host, which is
+worse because nothing complains.
+
+The parser rewrites a drive path into the file-URL shape before parsing and strips the leading
+slash afterwards, so all three of these reach the filesystem as `C:/Users/me/data`:
+
+```
+okf://C:\Users\me\data      what a Windows user actually types
+okf://C:/Users/me/data      the form that used to silently mis-parse
+okf:///C:/Users/me/data     the file-URL convention
+```
+
+CI found this. The local suite never would have, because a temp path on macOS or Linux has no drive
+letter, so the whole class of failure is invisible there. The tests added alongside the fix use
+literal Windows strings and therefore run everywhere.
+
+## Windows does not get a named pipe
+
+`Bun.serve` exposes a `unix` option and, on Linux, abstract namespace sockets. It documents no
+Windows named pipe support, so `okf+npipe:` cannot be implemented on this runtime today.
+
+The grammar still parses it, and `open()` fails with the fallback spelled out rather than something
+obscure. Windows daemon mode is loopback TCP:
+
+```
+okf+http://127.0.0.1:7777?token=...
+```
+
+<Callout type="warn" title="That fallback forces a security rule">
+  Loopback TCP is reachable by any local process, while a unix socket is guarded by file
+  permissions. So tokens are mandatory for every TCP bind, including `127.0.0.1`, and the server
+  refuses to start on TCP without them.
+</Callout>
+
+## Choosing one
+
+| Situation                                   | Mode                                    |
+| ------------------------------------------- | --------------------------------------- |
+| A single script, a test, a one-off compile  | embedded                                |
+| Several agents on one machine               | `okf+unix:`, one warm process           |
+| An app that is not on Bun                   | `okf+unix:` or `okf+http:` with `langonrock/client` |
+| Another machine, or several                 | `okf+https:` with a token               |
+| Windows, locally                            | `okf+http://127.0.0.1` with a token     |
+
+## Errors it will give you
+
+| Message                                        | Cause                                                     |
+| ---------------------------------------------- | --------------------------------------------------------- |
+| `invalid dsn "..."`                            | `new URL()` could not parse it                             |
+| `unsupported dsn scheme "..."`                 | Not one of the five schemes above                          |
+| `embedded dsn needs ?tenant=`                  | An `okf://` string with no tenant                          |
+| `npipe transport is unavailable`               | `okf+npipe:`, with the loopback TCP fallback spelled out   |
+| `this client speaks HTTP only`                 | `okf://` passed to `langonrock/client`, which has no filesystem |
+| `invalid tenant id "..."`                      | Outside `[a-z0-9_-]`, or longer than 64 characters         |

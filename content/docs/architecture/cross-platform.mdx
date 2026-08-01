@@ -1,0 +1,101 @@
+---
+title: Cross-platform
+description: The four places the architecture assumed POSIX, and what each one cost.
+icon: Monitor
+---
+
+The storage design assumes POSIX in several places. Fixing them on day one rather than the week
+before release is the difference between a design that ports and one that gets rewritten.
+
+## Mandatory file locking on Windows
+
+On POSIX you can delete or replace an open file and readers keep their descriptor. Windows raises a
+sharing violation, so the rename fails if anything holds the file open. Same for a memory-mapped
+file, which cannot be deleted or truncated while mapped.
+
+The design already handles this, and it is the reason the design is worth keeping. Snapshots are
+immutable and never overwritten. The only rename targets `current`, a tiny file nobody holds open.
+Deleting old snapshots belongs to the collector, which can retry later.
+
+## Directory fsync
+
+POSIX requires fsync on the parent directory after rename for real durability. Windows does not let
+you open a directory that way. It goes behind a per-platform function and is a no-op on Windows.
+
+## Filenames
+
+Windows reserves `CON`, `PRN`, `NUL` and `AUX`, forbids `: * ? < > |`, and caps paths at 260
+characters unless long paths are enabled. macOS is case-insensitive by default, so a bundle holding
+both `Orders.md` and `orders.md` collides.
+
+This would bite hard if concept ids became filenames. They do not. Blobs live inside the snapshot,
+which is named by a lowercase fixed-length hex hash, safe on every filesystem, and the id-to-offset
+mapping lives in the directory section.
+
+That was accidental in the original sketch and is now the main reason it ports cleanly.
+
+Concept paths written over the API are capped at 200 characters for the same reason.
+
+## Line endings
+
+Git on Windows converts LF to CRLF and changes the content hash. Put `* -text` in the source
+folder's `.gitattributes`, or normalize before hashing. Pick one and write it down.
+
+## Windows paths in a connection string
+
+`new URL()` handles them badly in two different ways, and one of them fails silently. Covered in
+[Connection modes](/docs/guides/connection-modes#windows-paths).
+
+CI found that. The local suite never would have, because a temp path on macOS or Linux has no drive
+letter. The parsing tests added alongside the fix use literal Windows strings and therefore run
+everywhere.
+
+## File watching
+
+`fs.watch` with `recursive: true` covers all three platforms with different temperaments. FSEvents
+on macOS coalesces events, `ReadDirectoryChangesW` on Windows overflows its buffer under bursts,
+and inotify on Linux has a watch limit.
+
+Debounce, and run a periodic full rescan as a backstop. Never trust watch events alone.
+
+<Callout type="warn" title="macOS replays recent changes when a recursive watch starts">
+  Files written moments before the watcher existed arrive as fresh events, so the first sync after
+  startup is usually spurious. It is harmless here only because an unchanged tree hashes to the
+  snapshot that already exists and the write is skipped. A watcher that blindly rewrote on every
+  event would churn on every boot.
+</Callout>
+
+Windows does something similar on its own schedule, which broke two tests that asserted exact sync
+counts. The lesson generalizes past those tests.
+
+**Never assert on how many times a watcher fired.** Every platform batches, replays and coalesces
+differently, and a count is an assertion about the operating system rather than about this code.
+Wait on the observable outcome instead, which is what the store contains.
+
+Writes inside dot directories are ignored. `.git` and `.obsidian` change constantly, and rebuilding
+on them would never stop.
+
+## Data directories
+
+```
+Linux    $XDG_DATA_HOME/langonrock   (fallback ~/.local/share/langonrock)
+macOS    ~/Library/Application Support/langonrock
+Windows  %LOCALAPPDATA%\langonrock
+```
+
+Precedence is `--data`, then `$LANGONROCK_DATA`, then the platform directory. An embedded
+connection string with no path means the same thing, so `okf://?tenant=acme` reads the default
+store.
+
+`platformDataDir` takes the host as an argument instead of reading globals, and pins the separator
+per platform rather than letting `join` follow the host. That makes the Windows and Linux branches
+assertable from a Mac.
+
+Which is the same lesson the Windows connection-string bug taught: **platform logic that can only
+be tested on its platform will not be tested.**
+
+## What CI actually runs
+
+The suite runs on Linux, macOS and Windows on every commit. That is not thoroughness for its own
+sake. Both of the bugs above were found by a platform the author does not develop on, and neither
+would have surfaced locally.

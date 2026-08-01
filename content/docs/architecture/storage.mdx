@@ -1,0 +1,179 @@
+---
+title: Storage
+description: Three layers, one immutable file format, and the reasons this is not a database.
+icon: Database
+---
+
+## The observation that shapes everything
+
+This data is tiny and read-mostly. A tenant with 10 bundles at 500 concepts and 2 KB each is about
+10 MB. Writes are human-scale, meaning someone edits a concept, not 50k writes per second.
+
+That frees the design from nearly everything that makes a database hard. No WAL, no MVCC, no page
+manager, no vacuum, no B-tree. You can rewrite the whole tenant file on every edit, about 10 ms on
+an SSD, and still sit orders of magnitude inside budget.
+
+"From scratch" should mean your own data model, semantics and API on top of boring proven pieces.
+Not writing a storage engine. The advantage here is the layout compiled for the prompt.
+
+## Split writes from reads
+
+The easiest way to give users CRUD is to not build CRUD. The source of truth is a directory of OKF
+Markdown they already know how to edit in Obsidian, VS Code or git. A daemon watches and compiles.
+
+Add a bundle by creating a folder. Remove it by deleting the folder. Modify it by saving a file.
+
+```
+sources/acme/          <- watch this
+  sales/               <- a bundle
+    tables/orders.md
+  ops/                 <- another bundle
+    runbooks/deploy.md
+```
+
+They compile together into one snapshot for the tenant, and the manifest carries a `bundle` column
+so an agent can filter without loading anything extra.
+
+Ids stay bare while they are unique across the whole tenant. Only the ones that clash between
+bundles pay for a `bundle/` prefix, and links are rewritten to match. Measured on two real Google
+samples merged into one tenant, nothing collided. Forcing a collision by duplicating a bundle
+produced `ga4/events_` and left the other bundle's ids untouched.
+
+## Three layers
+
+1. **Immutable content-addressed snapshot.** One `.tnt` file holding the manifest, the directory
+   and every concept blob. Its name is the sha256 of its own bytes, so an identical bundle always
+   lands on the same file and re-storing it is a no-op.
+2. **Tenant ref.** A one-line `current` file naming the active snapshot. The only mutable thing in
+   the system, updated by atomic rename.
+3. **Derived, disposable.** The BM25 index. Rebuildable from layers 1 and 2.
+
+The manifest is not in layer 3. It lives inside the snapshot, because it must be byte-identical to
+what the compiler produced.
+
+Layer 3 being disposable is what makes [backups](/docs/guides/backups) easy. Back up layers 1 and 2
+and nothing else.
+
+## Disk layout
+
+```
+data/
+  tenants/acme/
+    current              # one line: active snapshot id
+    lock                 # present only while a writer holds it
+    snapshots/
+      d735c5d3….tnt      # immutable, named by sha256 of its own bytes
+      78de7c5c….tnt      # previous version
+    log.jsonl            # append-only audit
+```
+
+There is no `derived/` directory. An earlier draft put a `bm25.idx` there, but the index turned out
+cheap enough to rebuild in memory, so the only things on disk are the snapshots and the pointer to
+them.
+
+## The tenant file format
+
+```
+[header]    magic "TNT1", version, section offsets   (32 bytes)
+[manifest]  TSV, uncompressed, contiguous
+[dir]       id -> (offset, len, section_offsets)
+[blobs]     zstd, one per concept
+```
+
+The header is 32 bytes: four bytes of magic, then seven little-endian `uint32` values giving the
+version and the offset and length of each of the three sections.
+
+The manifest sits contiguous and uncompressed on purpose. Slice the byte range and send it straight
+to the prompt. No parsing, no decompression, no allocation. It is the read that happens every turn,
+and the others are rare.
+
+## Why blobs live inside the snapshot
+
+An earlier draft put each concept in its own content-addressed file and made a snapshot an index
+over them. That buys cross-snapshot dedup: editing one concept in a 500-concept bundle would
+rewrite one blob instead of all of them.
+
+It was not worth it. The whole premise is that a tenant is about 10 MB and writes are human-scale,
+which is exactly the case where rewriting everything is cheap and a second level of indirection is
+not. A self-contained snapshot also makes the two operations that matter trivially correct: a
+backup is a file copy, and a restore is a file copy back.
+
+The cost is honest and worth stating. Retaining N old versions costs N full snapshots rather than N
+deltas. At 12 KB to 30 KB per real bundle after zstd, that is not a number worth engineering around
+yet. Revisit it if a tenant passes roughly 500 MB, which is the same threshold that would force the
+write path to change anyway.
+
+## Write path
+
+```
+write <digest>.tnt.tmp -> fsync -> rename to <digest>.tnt -> rename("current")
+```
+
+Copy-on-write. Readers never see a partial state, because rename is atomic. One writer per tenant,
+enforced by a lock file.
+
+<Callout type="warn" title="Both renames matter, and the first one was missing at first">
+  An earlier version wrote the snapshot straight to its digest name. A crash halfway through left a
+  truncated file whose name still claimed to be that content, so the next `put` found it, reported
+  `(reused)`, and pointed `current` at a snapshot that could not be parsed. The store was
+  permanently unreadable and nothing had reported an error.
+</Callout>
+
+Content addressing assumes the name describes the bytes. Anything that can break that assumption
+breaks the whole scheme, quietly.
+
+Choosing this write model removes transactions, isolation and crash recovery from the project.
+
+## Readers take no lock at all
+
+Snapshots are immutable, so reads are always safe and parallel, even during a write. This is the
+payoff of copy-on-write: the hard part of concurrency does not exist.
+
+## Multi-tenancy
+
+A tenant is a directory boundary. The tenant id never comes from a user-supplied path, and is
+always resolved through a lookup table or validated against an allowlist.
+
+Derived indexes are per tenant, never shared. A shared search index leaks content across tenants
+through ranking.
+
+<Callout type="warn" title="Content addressing has a tenancy trap">
+  A global blob store turns the hash into an existence oracle, letting one tenant probe whether
+  another holds given content. The blob namespace is per tenant by default. You lose cross-tenant
+  dedup, which at 10 MB per tenant costs nothing.
+</Callout>
+
+## Why not Postgres
+
+You give up ad-hoc queries, cross-tenant transactions and external inspection tools, and you own
+the bugs. For key lookup over small immutable documents, none of that bites.
+
+If analytical queries over metadata ever become a requirement, SQLite per tenant gives you 90% of
+it for free while keeping the one-file-per-tenant property that makes backup a copy.
+
+## Settled decisions
+
+**The hash is sha256.** `Bun.CryptoHasher` does not support blake3. blake2b256 is available, but
+sha256 also lets you verify a blob with `shasum` from a shell, which matters for a store you want
+to inspect and back up by hand.
+
+**Zero runtime dependencies below MCP.** `Bun.YAML.parse` handles OKF frontmatter including the
+nested v0.2 `sources` array, and `Bun.Glob` handles directory walking.
+
+## Retention
+
+`current` is never collected, and nothing newer than the grace window, one hour by default, is
+collected either. The grace period is not politeness: a reader holds a path rather than an open
+handle, parsing the directory on open and slicing blobs later, so deleting a snapshot out from
+under one would fail its next `get`.
+
+Beyond that, the newest N survive, 10 by default, and the rest go.
+
+A snapshot `current` points at is never deleted even when it is detected as truncated. Removing it
+would destroy the only evidence of what went wrong. The collector exits non-zero and says so
+instead.
+
+## Still open
+
+Whether the daemon should collect on a schedule. Today `gc` is an explicit command, which is
+inspectable but relies on someone running it.

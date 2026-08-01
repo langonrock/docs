@@ -1,0 +1,14 @@
+{
+  "title": "Architecture",
+  "icon": "Layers",
+  "pages": [
+    "okf",
+    "cost-model",
+    "read-model",
+    "storage",
+    "agent-api",
+    "cross-platform",
+    "runtime",
+    "benchmarks"
+  ]
+}

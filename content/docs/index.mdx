@@ -1,88 +1,107 @@
 ---
 title: Overview
-description: A Fumadocs documentation site running on Next.js 16, and the manual for using and developing it.
+description: A multi-tenant store for Open Knowledge Format bundles, built so an agent spends as few tokens and as few round trips as possible reading them.
 icon: House
 ---
 
-langondocs is a documentation site built with [Fumadocs](https://fumadocs.dev) on top of the
-Next.js App Router. You write Markdown files in `content/docs/`, and the site turns them into a
-searchable, navigable, statically generated documentation site — plus a set of machine-readable
-endpoints that let AI tools read the same content as plain Markdown.
+OKF is a good authoring format. A directory of Markdown with YAML frontmatter, no SDK, no runtime,
+readable in Obsidian and diffable in git. It is an expensive _reading_ format. The agent pays for
+full frontmatter on every read, the prose is written for people, and the reference consumption
+pattern walks the graph one file at a time, spending an inference turn per hop.
 
-These pages are that documentation. They describe this repository specifically: its versions, its
-file layout, and the parts of it that behave differently from what the upstream Fumadocs guides
-describe.
+langonrock keeps your Markdown as the source of truth and compiles it into a dense read model. A
+manifest the agent keeps in its cached prompt prefix, and section-addressable concepts it fetches
+in batches. Your bundles stay conformant, so `okflint`, the visualizer and Obsidian keep working on
+the same folder.
 
-## The stack
+## What it costs to read
 
-| Package | Version | Notes |
-| --- | --- | --- |
-| `next` | 16.2.12 | App Router, pinned exactly |
-| `react` / `react-dom` | 19.2.8 | |
-| `fumadocs-core` | 16.14.0 | Content loader, search server, negotiation |
-| `fumadocs-mdx` | 15.2.1 | MDX compilation, Macro API |
-| `fumadocs-ui` | `@fumadocs/base-ui@16.14.0` | npm alias — see below |
-| `tailwindcss` | 4.3.3 | CSS-first, no config file |
-| `typescript` | 6.0.3 | |
-| `lucide-react` | 1.28.0 | Icons resolved from frontmatter |
+Measured against the OKF reference consumption pattern over the same corpus and the same twenty
+questions:
 
-## Three things that will surprise you
+|                                          | OKF navigator | langonrock |
+| ---------------------------------------- | ------------: | ---------: |
+| Tokens billed for a 20-question session   |       116,357 | **64,355** |
+| Tool calls                                |            30 |     **17** |
+| Tokens for one concept read               |           594 |    **213** |
 
-Most Fumadocs material online predates this stack. Three differences account for nearly every
-wrong answer you will find:
+The saving comes from the manifest carrying the link graph. The agent knows every id it needs
+_before_ it fetches anything, so one batched call covers them all, and it can ask for a single
+section instead of the whole concept. The manifest itself is not smaller than the Markdown it
+replaces. [Full numbers, including where the store loses](/docs/architecture/benchmarks).
 
-<Callout type="warn" title="There is no source.config.ts">
-  This project uses the **Macro API**. Content collections are declared inline in
-  [`src/lib/source.ts`](/docs/development/source-api), not in a separate `source.config.ts`. If you
-  go looking for that file, you will not find it — and creating one will not do what you expect.
-</Callout>
-
-<Callout type="warn" title="fumadocs-ui is an alias">
-  `package.json` maps `fumadocs-ui` to `npm:@fumadocs/base-ui@16.14.0`. Import paths still read
-  `fumadocs-ui/...`, but the underlying primitives are [Base UI](https://base-ui.com), not Radix.
-  Component props sometimes differ from the Radix-era documentation.
-</Callout>
-
-<Callout type="warn" title="Search is zbsearch, not Orama">
-  `fumadocs-core` 16 replaced Orama with `zbsearch` as the default server engine. Orama survives
-  only as an optional static fallback, which this project does not use. See
-  [Search](/docs/development/search).
-</Callout>
-
-## Where to go
+## Where to start
 
 <Cards>
-  <Card
-    title="Getting Started"
-    description="Install, run, and find your way around the repository."
-    href="/docs/getting-started/installation"
-  />
-  <Card
-    title="Writing Content"
-    description="Author MDX pages, set frontmatter, use components, order the sidebar."
-    href="/docs/writing/mdx-basics"
-  />
-  <Card
-    title="Development"
-    description="Content loader, routes, styling, search, LLM endpoints, and dependencies."
-    href="/docs/development/source-api"
-  />
-  <Card
-    title="Operations"
-    description="Configuration, secrets and TLS, deployment, and troubleshooting."
-    href="/docs/operations/configuration"
-  />
+  <Card title="Installation" href="/docs/getting-started/installation" description="Install the binary or run from source with Bun." />
+  <Card title="Quickstart" href="/docs/getting-started/quickstart" description="Compile a folder of bundles and read it back in four commands." />
+  <Card title="Use it from an agent" href="/docs/guides/mcp" description="Register the MCP server with Claude Code or Cursor." />
+  <Card title="Why it is built this way" href="/docs/architecture/cost-model" description="Where the tokens and the round trips actually go." />
 </Cards>
 
-## Known issues in the current checkout
+## What it does
 
-Three things the scaffold left behind, none of which fail the build:
+**Compiles OKF, does not replace it.** Your directory of Markdown stays the source of truth and
+stays conformant.
 
-- **`appName` is `'My App'`** and **`gitConfig` points at `fuma-nama/fumadocs`** in
-  `src/lib/shared.ts`. They control the navbar title, the OG image label, and every "Open in GitHub"
-  link. See [Configuration](/docs/operations/configuration).
-- **`proxy.ts` is at the repository root**, but Next.js looks for it beside the app directory —
-  `src/proxy.ts` in this layout. Markdown content negotiation is inactive until it is moved. See
-  [LLM & Markdown Routes](/docs/development/llm-routes).
-- **`metadataBase` is unset**, so the build warns and OG image URLs cannot resolve to absolute URLs.
-  See [Deployment](/docs/operations/deployment).
+**A manifest that fits in the prompt.** One dense TSV row per concept: id, bundle, kind, status,
+grain, summary, outgoing links.
+
+**Byte-deterministic output.** Identical input compiles to identical bytes, so the manifest stays
+in the prompt cache across rebuilds.
+
+**Section addressing.** `get(id, "schema")` returns one slice instead of the whole document, using
+the concept's own Markdown headings.
+
+**Batched reads.** Pass every id you need in one call. N concepts cost one round trip.
+
+**Deterministic retrieval.** BM25 plus a capped one-hop expansion over the link graph, with no
+model call anywhere in the path.
+
+**Immutable, content-addressed snapshots.** A backup is a file copy, a restore is a file copy back,
+and a rollback is a side effect of naming files by their own hash.
+
+**Multi-tenant.** A tenant is a directory boundary with its own snapshots and its own index.
+
+**Three connection modes, one interface.** Embedded, local daemon, or HTTP server, selected by a
+connection string.
+
+**Refuses to leak its own credentials.** TCP needs a token, and any address past loopback needs
+TLS, or the server declines to start.
+
+**MCP server.** Four verbs for Claude Code, Cursor, or anything else that speaks MCP.
+
+**Editable over the network.** Create, change and delete concepts through the API, with a mandatory
+precondition so two editors cannot silently overwrite each other.
+
+**No database.** Two runtime dependencies, both for MCP.
+
+## The shape of a session
+
+An agent reads the manifest once, usually from the cached prompt prefix. It picks ids from the rows
+it already holds. It fetches them in one call, and only the section it needs.
+
+```sh
+langonrock manifest --data ./data --tenant acme
+```
+
+```
+# tenant: acme
+# bundles: ops sales
+id	bundle	kind	status	grain	summary	links
+deploy	ops	runbook	-	-	How to ship the orders service.	-
+customers	sales	bigquery_table	deprecated	customer_id	Registered customers, including churned.	-
+orders	sales	bigquery_table	-	order_id	One row per completed customer order.	customers
+```
+
+Everything needed to plan the reads is in those rows. A `status` cell other than `-` is the concept
+telling you it is not current.
+
+```sh
+langonrock get orders --section schema --data ./data --tenant acme
+```
+
+<Callout title="Two runtime dependencies">
+  `@modelcontextprotocol/sdk` and `zod`, both for the MCP server. Everything else, including YAML
+  parsing, directory walking, hashing and zstd, comes from Bun.
+</Callout>
