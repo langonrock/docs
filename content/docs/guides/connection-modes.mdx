@@ -54,6 +54,12 @@ The token identifies the tenant, so `?tenant=` is optional here. A remote connec
 is only accepted by a server bound to loopback. Anything else needs `https`. See [Tokens and
 TLS](/docs/guides/security).
 
+<Callout type="warn" title="The path in an http connection string is discarded">
+  `parseDsn` keeps the scheme and the host and throws the rest away, so a server mounted at
+  `https://host/okf/` behind a reverse proxy is unreachable. Every request goes to `/v1/…` at the
+  origin root. Mount it at the root, or rewrite the prefix in the proxy.
+</Callout>
+
 ## The tenant belongs to the connection
 
 Not to each call. Embedded and socket connections name it in the connection string because one

@@ -105,3 +105,14 @@ langonrock get orders --section schema --data ./data --tenant acme
   `@modelcontextprotocol/sdk` and `zod`, both for the MCP server. Everything else, including YAML
   parsing, directory walking, hashing and zstd, comes from Bun.
 </Callout>
+
+## The editor
+
+[langoneditor](https://github.com/langonrock/editor) is the human-facing half: a desktop app for
+macOS, Windows and Linux that browses the bundle tree, edits concepts as Markdown with a form for
+the frontmatter the compiler keeps, draws the link graph, searches through the server's BM25 index,
+and imports or exports bundles as archives or spreadsheets.
+
+It ships the langonrock binary inside it, so nothing else is required to run it. See [editing over
+the network](/docs/guides/editing) for the API it is built on, and [the
+library](/docs/guides/library) for the client it uses.

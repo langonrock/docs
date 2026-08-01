@@ -88,6 +88,12 @@ sixteen outgoing links cannot drag most of the manifest into the result.
 
 Errors carry a plain-text message, not a JSON envelope.
 
+<Callout type="warn" title="404 is also the catch-all">
+  Anything thrown that is not an explicit `HttpError` becomes a 404 carrying its message. A failed
+  compile during `sync` therefore arrives as "not found" rather than as a 500, so a client should
+  read the body instead of switching on the status alone.
+</Callout>
+
 ## Write endpoints
 
 Creating, changing and deleting concepts goes through the source API, which writes Markdown rather

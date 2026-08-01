@@ -8,6 +8,12 @@ An editor needs to create, change and delete concepts remotely. It does that by 
 **source Markdown**, never a snapshot. The watcher recompiles from source, so it would overwrite a
 snapshot written directly within seconds.
 
+<Callout title="There is a working implementation of everything on this page">
+  [langoneditor](https://github.com/langonrock/editor) is a desktop editor, visualizer and
+  import/export tool for OKF bundles, built on exactly these routes. It is the reference for how
+  this API is meant to be consumed, including what to do when a precondition fails.
+</Callout>
+
 ## Turning it on
 
 Two files, both covered in [Running a server](/docs/guides/running-a-server).
@@ -60,6 +66,16 @@ than merely discouraged.
 
 A successful write answers 204 with the new hash in the `ETag`, so the client can chain edits
 without re-reading.
+
+### What to do with a 412
+
+Refusing the write is the server's whole job here. Deciding what happens next belongs to the
+client, and there are only two honest options: discard one side, or merge.
+
+langoneditor shows a three-way merge rather than overwriting, and rebases all three resolutions
+onto the version it just observed, so a retry cannot fail for the same reason twice. It also polls
+the snapshot digest every few seconds and warns when the store moves underneath it, which catches
+the case where someone is editing the same bundle in Obsidian alongside.
 
 Deleting a whole bundle carries no precondition. The previous snapshot still holds every concept
 until the collector runs, so a mistake is recoverable from the store's own history.
