@@ -7,7 +7,14 @@ export function baseOptions(): BaseLayoutProps {
     nav: {
       title: (
         <span className="inline-flex items-center gap-2">
-          <Image src="/logo.png" alt="" width={22} height={22} priority />
+          <Image
+            src="/logo.png"
+            alt=""
+            width={32}
+            height={32}
+            priority
+            className="size-8 shrink-0"
+          />
           <span className="font-medium">{appName}</span>
         </span>
       ),

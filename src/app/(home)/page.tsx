@@ -13,27 +13,57 @@ const repo = `https://github.com/${gitConfig.user}/${gitConfig.repo}`;
 
 const styles = `
 .lr {
-  --lr-cobalt: oklch(0.42 0.15 252);
-  --lr-cobalt-deep: oklch(0.3 0.13 252);
-  --lr-on-cobalt: oklch(1 0 0);
-  --lr-on-cobalt-dim: oklch(0.82 0.05 252);
+  --lr-band: oklch(0.42 0.15 252);
+  --lr-band-deep: oklch(0.3 0.13 252);
+  --lr-on-band: oklch(1 0 0);
+  --lr-on-band-dim: oklch(0.82 0.05 252);
+  --lr-band-rule: rgb(255 255 255 / 0.25);
+  --lr-band-rule-soft: rgb(255 255 255 / 0.1);
   --lr-signal: oklch(0.86 0.14 195);
   --lr-flag: oklch(0.87 0.11 25);
+  --lr-blue: oklch(1 0 0);
+  --lr-action-bg: oklch(1 0 0);
+  --lr-action-fg: oklch(0.42 0.15 252);
   --lr-sans: var(--font-brand-sans), ui-sans-serif, system-ui, sans-serif;
   --lr-mono: var(--font-brand-mono), ui-monospace, monospace;
   font-family: var(--lr-sans);
+}
+/*
+ * Dark mode is not the cobalt drench inverted. The bands go near-black with a
+ * blue cast and blue becomes the detail colour, so the page reads as dark
+ * throughout rather than as one lit panel sitting on a dark document.
+ */
+.dark .lr {
+  --lr-band: oklch(0.17 0.02 252);
+  --lr-band-deep: oklch(0.13 0.015 252);
+  --lr-on-band: oklch(0.97 0.004 252);
+  --lr-on-band-dim: oklch(0.74 0.02 252);
+  --lr-band-rule: oklch(0.34 0.02 252);
+  --lr-band-rule-soft: oklch(0.26 0.02 252);
+  --lr-flag: oklch(0.8 0.14 25);
+  --lr-blue: oklch(0.7 0.14 252);
+  --lr-action-bg: oklch(0.7 0.14 252);
+  --lr-action-fg: oklch(0.17 0.02 252);
 }
 .lr-mono {
   font-family: var(--lr-mono);
   font-feature-settings: 'tnum' 1;
 }
 .lr-drench {
-  background: var(--lr-cobalt);
-  color: var(--lr-on-cobalt);
+  background: var(--lr-band);
+  color: var(--lr-on-band);
 }
 .lr-deep {
-  background: var(--lr-cobalt-deep);
-  color: var(--lr-on-cobalt);
+  background: var(--lr-band-deep);
+  color: var(--lr-on-band);
+}
+.dark .lr-drench,
+.dark .lr-deep {
+  border-bottom: 1px solid var(--lr-band-rule-soft);
+}
+.dark .lr-drench .lr-link,
+.dark .lr-deep .lr-link {
+  color: var(--lr-blue);
 }
 .lr-display {
   letter-spacing: -0.02em;
@@ -168,17 +198,23 @@ const styles = `
 
 const columns = ['id', 'bundle', 'kind', 'status', 'grain', 'summary', 'links'] as const;
 
+/**
+ * A deliberate mix of kinds. A concept is any document with frontmatter, and a
+ * manifest of nothing but warehouse tables misrepresents what people put in a
+ * bundle.
+ */
 const rows = [
-  ['deploy', 'ops', 'runbook', '-', '-', 'How to ship the orders service.', '-'],
   [
-    'customers',
-    'sales',
-    'bigquery_table',
-    'deprecated',
-    'customer_id',
-    'Registered customers, including churned.',
+    'checkout',
+    'api',
+    'openapi_service',
     '-',
+    '-',
+    'Public checkout endpoints and their error codes.',
+    'orders',
   ],
+  ['adr_0007', 'arch', 'decision', '-', '-', 'Why the store is not in Postgres.', '-'],
+  ['rollback', 'ops', 'runbook', 'draft', '-', 'Backing out a bad orders release.', 'checkout'],
   [
     'orders',
     'sales',
@@ -186,7 +222,7 @@ const rows = [
     '-',
     'order_id',
     'One row per completed customer order.',
-    'customers',
+    'checkout',
   ],
 ];
 
@@ -207,7 +243,7 @@ const capabilities = [
   },
   {
     title: 'Section addressing',
-    body: 'Ask for one section of a concept instead of the whole document, using its own Markdown headings. No model anywhere in the build path.',
+    body: 'Ask for one section instead of the whole document, using the concept’s own Markdown headings: the schema of a table, the rollback step of a runbook. No model anywhere in the build path.',
   },
   {
     title: 'Batched reads',
@@ -230,11 +266,11 @@ const modes = [
 ];
 
 function cellStyle(column: string, value: string) {
-  if (value === '-') return { color: 'var(--lr-on-cobalt-dim)', opacity: 0.5 };
+  if (value === '-') return { color: 'var(--lr-on-band-dim)', opacity: 0.5 };
   if (column === 'links') return { color: 'var(--lr-signal)' };
   if (column === 'status') return { color: 'var(--lr-flag)' };
-  if (column === 'id') return { color: 'var(--lr-on-cobalt)' };
-  return { color: 'var(--lr-on-cobalt-dim)' };
+  if (column === 'id') return { color: 'var(--lr-on-band)' };
+  return { color: 'var(--lr-on-band-dim)' };
 }
 
 export default function HomePage() {
@@ -248,7 +284,7 @@ export default function HomePage() {
             Your Markdown stays the source of truth. Your agent reads the compiled manifest.
           </h1>
 
-          <p className="lr-prose mt-7 text-[1.0625rem] leading-relaxed text-[color:var(--lr-on-cobalt-dim)]">
+          <p className="lr-prose mt-7 text-[1.0625rem] leading-relaxed text-[color:var(--lr-on-band-dim)]">
             OKF is a good authoring format and an expensive reading format. The agent pays for full
             frontmatter on every read, and the reference consumption pattern walks the graph one
             file at a time, spending an inference turn per hop. langonrock compiles a folder of
@@ -259,7 +295,7 @@ export default function HomePage() {
           <div className="mt-9 flex flex-wrap items-center gap-x-8 gap-y-4">
             <a
               href={repo}
-              className="lr-mono rounded-md bg-[color:var(--lr-on-cobalt)] px-4 py-2.5 text-sm font-medium text-[color:var(--lr-cobalt)] transition-opacity hover:opacity-90"
+              className="lr-mono rounded-md bg-[color:var(--lr-action-bg)] px-4 py-2.5 text-sm font-medium text-[color:var(--lr-action-fg)] transition-opacity hover:opacity-90"
             >
               View the source
             </a>
@@ -270,9 +306,9 @@ export default function HomePage() {
 
           <div className="mt-14 overflow-x-auto">
             <table className="lr-mono w-full min-w-[48rem] border-collapse text-[0.8125rem]">
-              <caption className="pb-3 text-left text-[color:var(--lr-on-cobalt-dim)] opacity-70">
+              <caption className="pb-3 text-left text-[color:var(--lr-on-band-dim)] opacity-70">
                 <span className="block"># tenant: acme</span>
-                <span className="block"># bundles: ops sales</span>
+                <span className="block"># bundles: api arch ops sales</span>
               </caption>
               <thead>
                 <tr>
@@ -280,7 +316,7 @@ export default function HomePage() {
                     <th
                       key={column}
                       scope="col"
-                      className="whitespace-nowrap border-b border-white/25 py-2 pr-8 text-left font-normal text-[color:var(--lr-on-cobalt-dim)] last:pr-0"
+                      className="whitespace-nowrap border-b border-[color:var(--lr-band-rule)] py-2 pr-8 text-left font-normal text-[color:var(--lr-on-band-dim)] last:pr-0"
                     >
                       {column}
                     </th>
@@ -297,7 +333,7 @@ export default function HomePage() {
                     {row.map((value, cell) => (
                       <td
                         key={columns[cell]}
-                        className="whitespace-nowrap border-b border-white/10 py-2.5 pr-8 align-top last:pr-0"
+                        className="whitespace-nowrap border-b border-[color:var(--lr-band-rule-soft)] py-2.5 pr-8 align-top last:pr-0"
                         style={cellStyle(columns[cell], value)}
                       >
                         {value}
@@ -309,8 +345,9 @@ export default function HomePage() {
             </table>
           </div>
 
-          <p className="lr-prose mt-5 text-sm text-[color:var(--lr-on-cobalt-dim)]">
-            One row per concept. The{' '}
+          <p className="lr-prose mt-5 text-sm text-[color:var(--lr-on-band-dim)]">
+            One row per concept, and a concept is any Markdown document with frontmatter. A runbook,
+            an architecture decision, an API, a metric, a warehouse table. The{' '}
             <span style={{ color: 'var(--lr-signal)' }}>links</span> column carries the graph, so
             the agent knows every id it needs before it fetches anything. A{' '}
             <span style={{ color: 'var(--lr-flag)' }}>status</span> cell other than{' '}
@@ -534,12 +571,17 @@ export default function HomePage() {
 
       <section className="lr-deep">
         <div className="mx-auto w-full max-w-6xl px-6 py-16">
-          <h2 className="lr-h2 font-medium">There is an editor for the people</h2>
-          <p className="lr-prose mt-4 text-[color:var(--lr-on-cobalt-dim)] leading-relaxed">
-            langoneditor is the human-facing half. A desktop app for macOS, Windows and Linux that
-            browses the bundle tree, edits concepts as Markdown, draws the link graph, searches the
-            server’s index, and moves bundles in and out as archives or spreadsheets. It ships the
-            langonrock binary inside it, so nothing else is required to run it.
+          <h2 className="lr-h2 font-medium">People get an editor, not a manifest</h2>
+          <p className="lr-prose mt-4 text-[color:var(--lr-on-band-dim)] leading-relaxed">
+            The compiled read model is for agents. langoneditor is the half you look at: a desktop
+            app for macOS, Windows and Linux that browses the bundle tree, edits concepts as
+            Markdown with a form for the frontmatter, draws the link graph, searches the server’s
+            index, and moves bundles in and out as archives or spreadsheets. It ships the langonrock
+            binary inside it, so nothing else is required to run it.
+          </p>
+          <p className="lr-prose mt-4 text-[color:var(--lr-on-band-dim)] leading-relaxed">
+            It derives no ids, resolves no links and reproduces no lint rules. It asks the server
+            and shows the answer, so the two cannot drift apart.
           </p>
           <p className="mt-6">
             <a href="https://github.com/langonrock/editor" className="lr-link lr-mono text-sm">
@@ -557,6 +599,9 @@ export default function HomePage() {
           <div className="lr-mono flex flex-wrap gap-x-7 gap-y-2 text-sm">
             <a href={repo} className="lr-link">
               GitHub
+            </a>
+            <a href="https://github.com/langonrock/editor" className="lr-link">
+              Editor
             </a>
             <Link href="/docs/getting-started/quickstart" className="lr-link">
               Quickstart

@@ -5,10 +5,42 @@ Fumadocs neutral preset and is deliberately left alone; this document covers the
 
 ## Theme
 
-Light and dark are both first-class, inherited from the documentation shell's toggle. The brand
-colour is not themed: the cobalt bands stay cobalt in both, because they are the brand rather than
-a surface. Everything outside those bands uses Fumadocs `--color-fd-*` tokens so the neutral
-surface follows the reader's theme without a second palette to maintain.
+Light and dark are both first-class, inherited from the documentation shell's toggle, and they are
+**not** the same design inverted.
+
+**Light** is the committed cobalt drench. The hero and the editor band carry the brand colour, and
+white text sits on it.
+
+**Dark** goes dark throughout. The bands become near-black with a blue cast, `oklch(0.17 0.02 252)`
+and `oklch(0.13 0.015 252)`, and blue moves from being the surface to being the detail: the primary
+action, the links inside a band, and the chart accent. A cobalt panel glowing inside an otherwise
+dark page reads as one lit rectangle rather than as a dark design, which is why the drench is not
+carried over.
+
+Everything outside the bands uses Fumadocs `--color-fd-*` tokens, so the neutral surface follows
+the reader's theme without a second palette to maintain.
+
+| Token               | Light                  | Dark                     |
+| ------------------- | ---------------------- | ------------------------ |
+| `--lr-band`         | `oklch(0.42 0.15 252)` | `oklch(0.17 0.02 252)`   |
+| `--lr-band-deep`    | `oklch(0.3 0.13 252)`  | `oklch(0.13 0.015 252)`  |
+| `--lr-on-band`      | `oklch(1 0 0)`         | `oklch(0.97 0.004 252)`  |
+| `--lr-on-band-dim`  | `oklch(0.82 0.05 252)` | `oklch(0.74 0.02 252)`   |
+| `--lr-action-bg`    | `oklch(1 0 0)`         | `oklch(0.7 0.14 252)`    |
+| `--lr-action-fg`    | `oklch(0.42 0.15 252)` | `oklch(0.17 0.02 252)`   |
+
+Dark contrast, computed: ink 17.5:1, dim 8.3:1, signal 13.2:1, flag 9.2:1 and blue 7.2:1 against
+the band; action text 7.2:1 on the blue button.
+
+## The manifest sample
+
+The rows on the hero are a deliberate mix of kinds: an OpenAPI service, an architecture decision, a
+runbook and a warehouse table. OKF concepts are documents, not tables, and a sample of nothing but
+`bigquery_table` rows with `grain` filled in misrepresents the format. The `grain` column is empty
+on three of the four rows for the same reason: it is a table field, not a universal one.
+
+Rows are ordered by bundle then id, matching what the compiler actually emits, and the ids in the
+`links` column all resolve to visible rows so nothing reads as a dangling reference.
 
 ## Color
 

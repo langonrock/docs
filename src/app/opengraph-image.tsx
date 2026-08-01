@@ -28,7 +28,7 @@ export default async function OpenGraphImage() {
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
-          <img src={logoSrc} width={84} height={84} alt="" />
+          <img src={logoSrc} width={120} height={120} alt="" />
           <span style={{ fontSize: 40, color: '#ffffff', fontWeight: 600 }}>{appName}</span>
         </div>
 
