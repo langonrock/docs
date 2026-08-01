@@ -1,0 +1,138 @@
+---
+title: Running a server
+description: sources.json, the built-in watcher, sockets and TCP.
+icon: Server
+---
+
+import { Step, Steps } from 'fumadocs-ui/components/steps';
+
+This needs two directories. Your Markdown lives wherever you already keep it, usually a git
+repository of its own, and the store is a separate folder the server owns. Folders are never moved
+into the store.
+
+<Steps>
+<Step>
+
+### Create both directories
+
+```sh
+mkdir -p ~/okf/sources/acme/sales ~/okf/data
+```
+
+Every immediate subdirectory of `sources/acme` is a bundle, so concepts go in
+`sources/acme/sales/`, never directly in `sources/acme/`.
+
+</Step>
+<Step>
+
+### Map the tenant to its folder
+
+```sh
+echo '{ "acme": "/home/me/okf/sources/acme" }' > ~/okf/data/sources.json
+```
+
+Write the path in full. Nothing expands `~` inside a JSON string.
+
+`sources.json` does two things at once. It makes the tenant writable over the API, and it tells
+`serve` to compile the folder at startup and keep watching it. A tenant with no entry stays
+readable and refuses writes, which is the right default and needs no flag.
+
+</Step>
+<Step>
+
+### Start it
+
+```sh
+langonrock serve --data ~/okf/data --socket /tmp/okf.sock
+```
+
+```
+snapshot 9ac37f10832c (new), 1 bundle [sales], 1 concepts, 342 bytes on disk
+watching /home/me/okf/sources/acme for tenant acme
+langonrock serving /home/me/okf/data on /tmp/okf.sock (0 tokens, 1 writable tenant)
+```
+
+Those three lines say the whole story. It compiled, it is watching, and it is listening.
+
+</Step>
+<Step>
+
+### Talk to it
+
+```sh
+langonrock query "okf+unix:///tmp/okf.sock?tenant=acme" manifest
+langonrock query "okf+unix:///tmp/okf.sock?tenant=acme" search orders
+```
+
+</Step>
+</Steps>
+
+## The server runs the watcher itself
+
+You do not need a separate `sync` first, and you do not need `langonrock watch` in another
+terminal. Running both would put two watchers on one tenant.
+
+One watcher starts per entry in `sources.json`, and the server keeps them rather than discarding
+them, so a client that writes through the API can ask for a recompile and be told the new digest.
+That is what `POST /v1/{tenant}/sync` uses.
+
+Without `--socket`, the daemon listens on `<data>/langonrock.sock`.
+
+<Callout type="warn" title="ENOENT: no such file or directory, watch '...'">
+  A path in `sources.json` does not exist. The folder has to be there before the server starts, and
+  every immediate subdirectory of it is a bundle, so `sources/acme/sales/orders.md` works where
+  `sources/acme/orders.md` gives you an empty tenant.
+</Callout>
+
+## Tuning the watcher
+
+| Flag             | Default | What it controls                                    |
+| ---------------- | ------- | --------------------------------------------------- |
+| `--debounce`     | 200 ms  | How long to coalesce filesystem events before compiling |
+| `--rescan`       | 30 s    | Full rescan interval, the backstop for missed events |
+
+Watch events are a hint, never the source of truth. FSEvents coalesces, `ReadDirectoryChangesW`
+overflows its buffer under bursts, and inotify has a watch limit. The rescan is nearly free, since
+an unchanged tree hashes to the snapshot that already exists and the write is skipped.
+
+On a large tenant a compile is a few hundred milliseconds, so an aggressively autosaving editor
+should raise `--debounce` rather than call `sync` on every keystroke.
+
+## Watching one extra tenant
+
+```sh
+langonrock serve --data ~/okf/data --tenant beta --watch ~/okf/sources/beta
+```
+
+`--watch` starts a watcher for `--tenant` without adding it to `sources.json`, so the tenant is
+kept in sync but stays read-only over the API. `sources.json` is the better answer in almost every
+case, since it survives a restart and does not depend on the command line.
+
+## Over TCP
+
+```sh
+langonrock serve --data ~/okf/data --host 127.0.0.1 --port 7777
+```
+
+The default host is `127.0.0.1` and the default port is 7777. A TCP bind always requires tokens,
+including on loopback, and any host past loopback requires TLS. Both rules are enforced at startup
+rather than per request. See [Tokens and TLS](/docs/guides/security).
+
+## Reading the output
+
+Progress goes to stderr so stdout stays clean for piping, and Bun paints anything written with
+`console.error` red. Those lines are status, not failures.
+
+The last line reports how many tokens loaded and how many tenants are writable:
+
+```
+langonrock serving /home/me/okf/data on /tmp/okf.sock (0 tokens, 1 writable tenant)
+```
+
+Zero tokens on a socket is a valid configuration. Zero tokens on TCP never starts.
+
+## Memory is the practical ceiling
+
+The store rebuilds the BM25 index in memory once per snapshot. At 20,000 concepts, peak process
+memory landed between 0.9 and 1.2 GB across runs, too noisy for a single figure to be worth
+printing but firmly the limit on how many large tenants one daemon can hold.

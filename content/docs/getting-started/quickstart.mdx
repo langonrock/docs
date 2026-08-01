@@ -1,0 +1,128 @@
+---
+title: Quickstart
+description: Compile a folder of bundles, read the manifest, fetch one section.
+icon: Zap
+---
+
+import { Step, Steps } from 'fumadocs-ui/components/steps';
+
+<Steps>
+<Step>
+
+### Lay out the source
+
+Point langonrock at a folder where every immediate subdirectory is one bundle.
+
+```
+sources/acme/
+  sales/
+    tables/orders.md
+    tables/customers.md
+  ops/
+    runbooks/deploy.md
+```
+
+`sales` and `ops` are bundles. `orders`, `customers` and `deploy` are concepts. A file with no
+frontmatter is not a concept, so a cloned repository's `README.md` is skipped rather than indexed.
+
+</Step>
+<Step>
+
+### Compile it into the store
+
+```sh
+langonrock sync sources/acme --data ./data --tenant acme
+```
+
+```
+snapshot eaf251169a59 (new), 2 bundles [ops sales], 3 concepts, 850 bytes on disk
+```
+
+That is the whole write path. `sync` reads every subdirectory as a bundle and writes one snapshot
+for the tenant.
+
+</Step>
+<Step>
+
+### Read the manifest
+
+```sh
+langonrock manifest --data ./data --tenant acme
+```
+
+```
+# tenant: acme
+# bundles: ops sales
+id	bundle	kind	status	grain	summary	links
+deploy	ops	runbook	-	-	How to ship the orders service.	-
+customers	sales	bigquery_table	deprecated	customer_id	Registered customers, including churned.	-
+orders	sales	bigquery_table	-	order_id	One row per completed customer order.	customers
+```
+
+Everything an agent needs to plan its reads is in those rows. The `links` column carries the graph,
+so it knows every id it will need before it fetches anything. A `status` cell other than `-` is the
+concept telling you it is not current.
+
+</Step>
+<Step>
+
+### Fetch only what you chose
+
+```sh
+langonrock get orders --section schema --data ./data --tenant acme
+```
+
+Section names come from the concept's own Markdown headings, lowercased with non-alphanumerics
+collapsed to underscores. A `# Common query patterns` heading becomes
+`--section common_query_patterns`. Text before the first heading is the `body` section.
+
+Drop `--section` for the whole concept, and pass several ids to fetch them in one call.
+
+</Step>
+</Steps>
+
+## Keep it following your edits
+
+Syncing by hand gets old. Run the watcher instead:
+
+```sh
+langonrock watch sources/acme --data ./data --tenant acme
+```
+
+Add a bundle by creating a folder, remove one by deleting the folder, change one by saving a file.
+The watcher debounces filesystem events at 200 ms and runs a full rescan every 30 seconds as a
+backstop, because watch events are a hint on every platform and never the source of truth.
+
+If you are going to run the daemon anyway, skip this command. [`serve` starts the same
+watcher itself](/docs/guides/running-a-server), and running both would put two watchers on one
+tenant.
+
+## Hand it to an agent
+
+```sh
+langonrock mcp "okf://$PWD/data?tenant=acme"
+```
+
+For Claude Code, register it once:
+
+```sh
+claude mcp add langonrock -- langonrock mcp "okf:///abs/path/to/data?tenant=acme"
+```
+
+Four tools, no more: `manifest`, `search`, `get`, `snapshot`. See [MCP
+server](/docs/guides/mcp) for what each one is for and why the count is capped.
+
+## Searching instead of reading everything
+
+```sh
+langonrock query "okf:///abs/path/to/data?tenant=acme" search orders
+```
+
+Search returns manifest rows, never bodies, so the two-hop path holds. Narrow with `search`, then
+fetch the ids you chose with `get`. Results include concepts one link away from the top matches,
+which is usually where the join partner or the parent dataset lives.
+
+<Callout title="Progress goes to stderr">
+  Stdout stays clean for piping, and Bun paints anything written with `console.error` red. Those
+  lines are status, not failures.
+</Callout>

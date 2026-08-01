@@ -1,0 +1,154 @@
+---
+title: Backup and collection
+description: Copy a directory, copy it back, and keep the snapshot count bounded.
+icon: Archive
+---
+
+## Backup is a file copy
+
+```sh
+cp -r ~/okf/data/tenants /backup/okf-$(date +%F)
+```
+
+A tar is enough. Snapshots are immutable and self-contained, so there is nothing to quiesce and no
+consistent-snapshot dance to perform.
+
+## Incremental is the same copy, minus what you have
+
+Snapshots are named by the sha256 of their own bytes, so copying the ones the backup lacks is
+correct by construction. There is no diff step and no way for a stale copy to be wrong about its
+own contents.
+
+## Restore is the copy back
+
+```sh
+cp -r /backup/okf-2026-07-31/tenants ~/okf/data/
+```
+
+Nothing else is needed. The search index rebuilds itself in memory on first use, and there is no
+`derived/` directory to clear.
+
+<Callout type="warn" title="A snapshot is not a backup of your Markdown">
+  It holds the compiled read model. Frontmatter is compiled away and cannot be recovered from it.
+  Keep the source folder in git, and back up `tenants/` for the store.
+</Callout>
+
+## What is on disk
+
+```
+data/
+  sources.json         # tenant -> source directory, optional
+  tokens.json          # bearer tokens, mode 600, optional
+  tenants/acme/
+    current            # one line: the active snapshot id
+    lock               # present only while a writer holds it
+    snapshots/
+      d735c5d3….tnt    # immutable, named by sha256 of its own bytes
+      78de7c5c….tnt    # the previous version
+    log.jsonl          # append-only audit
+```
+
+### log.jsonl
+
+Append-only, one JSON object per sync, and the answer to "who changed this and when".
+
+```json
+{
+  "at": "2026-07-31T14:22:08.914Z",
+  "tenant": "acme",
+  "source": "/home/me/okf/sources/acme",
+  "bundles": ["ops", "sales"],
+  "snapshot": "eaf251169a59…",
+  "concepts": 3,
+  "bytes": 850,
+  "reused": false
+}
+```
+
+`reused: true` means the tree hashed to a snapshot that already existed, so nothing was written.
+Nothing collects this file, so it grows without bound. Rotate it yourself if that matters.
+
+### lock
+
+Present only while a writer holds it, and it contains the writer's pid. One writer per tenant is
+all the store needs, since readers never take a lock at all.
+
+A lock older than 30 seconds is treated as stale and broken, which is what stops a crashed writer
+from wedging a tenant permanently. A live conflict fails instead:
+
+```
+another writer holds the lock at /home/me/okf/data/tenants/acme/lock
+```
+
+## Point in time
+
+Every retained snapshot is a full copy, so retention costs size times count. At 12 KB to 30 KB per
+real bundle after zstd, that is cheap at the scale this targets. Rolling back is copying an old
+`.tnt` name into `current`, and deleting a bundle then restoring it returns to the original
+snapshot rather than writing a new one, because names are content.
+
+## Collection
+
+```sh
+langonrock gc --data ~/okf/data --dry-run
+langonrock gc --data ~/okf/data --tenant acme --keep 5
+```
+
+Without `--tenant` it sweeps every tenant. It keeps `current` plus the newest N, default 10, and
+removes the rest, along with any `.tnt.tmp` left by a crash and any snapshot whose header points
+past the end of its own file.
+
+| Flag           | Default   | Effect                                 |
+| -------------- | --------- | -------------------------------------- |
+| `--keep <n>`   | 10        | Snapshots to retain per tenant         |
+| `--grace <ms>` | 3600000   | Never collect anything newer than this |
+| `--dry-run`    | off       | Report what would be removed           |
+
+```
+acme: removed 3 snapshots and 1 partial, kept 10, freed 148231 bytes
+```
+
+### The grace period is not politeness
+
+A reader holds a path rather than an open handle. It parses the directory when it opens the
+snapshot and slices blobs later, so deleting a snapshot out from under one would fail its next
+`get`. One hour is the default window.
+
+### A corrupt current is never deleted
+
+`current` is never collected. Even when the snapshot it points at is detected as truncated, the
+collector leaves it alone, exits non-zero and says so:
+
+```
+error: acme points at d735c5d3…, which is missing or truncated
+```
+
+Removing it would destroy the only evidence of what went wrong.
+
+## The restore test runs on every commit
+
+An untested backup is not a backup. `test/restore.test.ts` runs the whole round trip: build a store
+with several tenants and several snapshots each, copy `tenants/`, **delete the entire data root**,
+restore only that directory, and require the snapshot digest, the manifest, a fetched concept and a
+search result to come back byte for byte. It then writes a new snapshot to prove the restored store
+is not read-only, and repeats the exercise copying only the snapshots the backup lacked, which is
+the incremental claim.
+
+Deleting the whole root rather than just the snapshots is the part that matters. Anything outside
+`tenants/` that had quietly become load-bearing would surface exactly there.
+
+The original plan said to run this weekly. It runs on every commit instead, since the store is
+synthetic and the round trip takes 45 ms. There is no reason to check a durability promise less
+often than everything else.
+
+## Why a partial write cannot poison the store
+
+The writer goes temp file, fsync, rename to the digest name, then an atomic rename of `current`.
+
+An earlier version wrote the snapshot straight to its digest name. A crash halfway through left a
+truncated file whose name still claimed to be that content, so the next `put` found it, reported
+`(reused)`, and pointed `current` at a snapshot that could not be parsed. The store was permanently
+unreadable and nothing had reported an error.
+
+Writing to a temp first means a digest-named file only ever exists complete, and a crash can only
+leave a `.tnt.tmp` for the collector to sweep.

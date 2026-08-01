@@ -1,4 +1,4 @@
 {
-  "title": "langondocs",
-  "pages": ["index", "getting-started", "writing", "development", "operations"]
+  "title": "Langonrock",
+  "pages": ["index", "getting-started", "guides", "architecture"]
 }

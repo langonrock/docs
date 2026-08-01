@@ -1,0 +1,69 @@
+---
+title: Where the cost goes
+description: Three taxes on reading OKF, and only one of them is the syntax.
+icon: Coins
+---
+
+The format is not slow. The consumption pattern is. OKF is files on disk, and cost comes from three
+places.
+
+## Metadata tax
+
+Full frontmatter runs 60 to 120 tokens per concept, paid on every read whether or not the fields
+matter to the question. YAML repeats key names in every record. For 500 concepts at 8 keys and
+roughly 3 tokens per key name, that is about 12k tokens of nothing but field names.
+
+## Round-trip tax
+
+This is the slow part, and the largest.
+
+The navigator pattern goes index, choose, read, follow link, read more. Each hop is a full inference
+turn. Four hops at roughly 2 seconds each before the agent starts answering.
+
+Latency here is round trips, not tokens. That is the reframing the whole design rests on: a saved
+round trip is worth about a second, while every millisecond of I/O in this system put together is
+worth less than a tenth of one.
+
+## Prose tax
+
+Markdown written for humans carries connective tissue. "This table contains one row per completed
+order, and is typically joined with..." The model needs `grain=order_id`.
+
+This is the tax langonrock does the least about. Stripping prose to bare facts is still the bigger
+win and still wants an LLM pass, which the compiler deliberately does not have. See [the read
+model](/docs/architecture/read-model) for why that turned out to be optional rather than
+load-bearing.
+
+## Two principles
+
+**Move token cost from query time to build time.** Anything the compiler can decide once should not
+be decided on every read.
+
+**The model should never spend a turn deciding what to read next if a deterministic index could
+have told it.** That single sentence produces the manifest, the link column, batched `get`, and
+BM25 with no model in the retrieval path.
+
+## How to measure it
+
+Do not measure bundle size.
+
+Measure tokens to first correct answer, and number of round trips, against a fixed set of about 20
+real questions. Without that you will optimize bytes and miss that the latency was all in the hops.
+
+The [benchmarks](/docs/architecture/benchmarks) are built exactly that way, and the most useful
+thing they show is that the manifest is *larger* than a well-kept `index.md`. Density is not where
+the saving comes from.
+
+## The cheapest possible version
+
+Generate `manifest.tsv` over your existing OKF and put it in the prompt prefix. Roughly 40 lines of
+script, and it captures most of the gain.
+
+```ts
+import { compileBundle } from 'langonrock';
+
+const { tsv } = await compileBundle('sources/acme/sales');
+```
+
+Do this before building anything else. Everything past it, the store, the daemon, the server, the
+watcher, buys operational properties rather than token savings.

@@ -1,0 +1,86 @@
+---
+title: The agent API
+description: Four verbs, why there is no fifth, and why tool count is itself a token cost.
+icon: Waypoints
+---
+
+Few verbs, all deterministic.
+
+```
+manifest()                  -> TSV, usually already in the cached prefix
+get(ids[], section?)        -> batch, one round trip for N concepts
+snapshot()                  -> digest, to check whether the manifest is stale
+search(query, k)            -> BM25 plus a capped one-hop expansion
+```
+
+## Tool count is a token cost
+
+Four tools run about 200 tokens of schema in the client's system prompt. Fifteen run about 1,500,
+paid on every single turn whether or not any of them is called.
+
+That is the whole reason this list is short. Each verb had to earn a place against that standing
+cost. `manifest` and `search` narrow, `get` fetches, `snapshot` invalidates. Nothing else did.
+
+## Batching `get` is what kills latency
+
+The agent reads the manifest, picks three ids, fetches all three in one call. Two round trips
+total, against four or five for the navigator pattern.
+
+This works only because the manifest carries the link graph. Without the `links` column the agent
+cannot know the third id until it has read the second concept, and the batch collapses back into a
+walk.
+
+The `bundle` column does the same job for filtering. The agent narrows without loading anything
+extra.
+
+## Why there is no `put` verb
+
+An earlier draft listed `put(bundle, changes)` as the fourth verb, "only if agents write". The
+watcher settled that question by making it incoherent.
+
+The source folder is the truth, and the watcher recompiles from it. An agent that wrote a snapshot
+through `put` would have that snapshot silently replaced by the next filesystem event or the next
+rescan, at most 30 seconds later. The write would look like it succeeded and then quietly vanish,
+which is worse than not offering it.
+
+Agents that should change knowledge edit the source Markdown like a human does, through [the source
+API](/docs/guides/editing), and the watcher picks it up. That keeps one writer and one source of
+truth instead of two that race.
+
+## The MCP server
+
+`langonrock mcp <dsn>` speaks MCP over stdio on top of `Connection`, so it works against an
+embedded path, a local daemon or a remote server without knowing which.
+
+### Descriptions state when to call, not just what the tool does
+
+"Call this before anything else." "Pass every id you need in one call." "Never guess an id."
+
+A description that only describes gets under-triggered. Spending schema tokens on when-to-call
+buys more than spending them on another tool.
+
+### The manifest is exposed twice on purpose
+
+As a tool for every client, and as an MCP **resource** at `okf://manifest` for clients that preload
+resources into context.
+
+The resource path is the one that actually delivers the design's central claim. A preloaded
+manifest lands in the cacheable prompt prefix. One arriving mid-conversation as a tool result does
+not, and pays full price every turn.
+
+## What search returns, and what it does not
+
+Manifest rows. Never bodies.
+
+That keeps the two-hop path intact: narrow with `search`, then fetch only the chosen ids with
+`get`. A search that returned bodies would be a single hop that costs more than the manifest it was
+meant to avoid reading.
+
+## The shape of a good session
+
+1. The manifest is already in the prefix, cached.
+2. The agent picks ids from rows it holds.
+3. One `get` with every id, and a `section` when only the schema is needed.
+
+On a large tenant, step 1 becomes `search` or `manifest(bundle)`. The count of round trips does not
+change.

@@ -1,0 +1,110 @@
+---
+title: HTTP API
+description: The read endpoints, their ETags, and the one response that is not JSON.
+icon: Globe
+---
+
+HTTP/1.1 and JSON, with one deliberate exception. The manifest goes out as raw bytes, because
+JSON-escaping a TSV adds bytes and parse cost to the payload transferred most often.
+
+The same routes serve a unix socket and a TCP listener. The socket still speaks HTTP underneath.
+
+## Read endpoints
+
+```
+GET  /v1/{tenant}/manifest[?bundle=sales]  the manifest, ETag is the snapshot digest
+GET  /v1/{tenant}/snapshot                 {"snapshot": "…", "concepts": n}
+POST /v1/{tenant}/get                      {"ids": [...], "section"?: "schema"}
+POST /v1/{tenant}/search                   {"q": "...", "k"?: n, "expand"?: false, "bundle"?: "..."}
+```
+
+The tenant segment is optional when a token identifies one, so `/v1/manifest` and
+`/v1/acme/manifest` both work. It is required when the server has no tokens at all, which only
+happens on a unix socket.
+
+```sh
+curl -H 'Authorization: Bearer read-only' http://127.0.0.1:7777/v1/manifest
+
+curl -X POST -H 'Authorization: Bearer read-only' -H 'content-type: application/json' \
+  -d '{"ids":["orders"],"section":"schema"}' http://127.0.0.1:7777/v1/get
+```
+
+## Conditional requests
+
+The manifest carries an `ETag` set to the snapshot digest, or to `digest:bundle` when narrowed.
+Send `If-None-Match` with the ETag you hold and an unchanged manifest answers `304` with no body.
+
+```sh
+curl -H 'Authorization: Bearer read-only' -H 'If-None-Match: "9ac37f10832c…"' \
+  http://127.0.0.1:7777/v1/manifest
+```
+
+Between turns of a conversation that is the whole transfer skipped. `snapshot` is the cheaper check
+when you only want to know whether anything moved.
+
+## Responses
+
+| Endpoint   | Content type                    | Shape                                        |
+| ---------- | ------------------------------- | -------------------------------------------- |
+| `manifest` | `text/tab-separated-values`     | Raw TSV, comment lines then a header row      |
+| `snapshot` | `application/json`              | `{"snapshot": "…", "concepts": n}`           |
+| `get`      | `application/json`              | An object keyed by id, missing ids absent     |
+| `search`   | `text/tab-separated-values`     | Manifest rows, with `# query` and `# hits` comments |
+
+`get` returns an object rather than an array, so a missing id is simply not a key. Nothing errors
+when one of a batch does not exist.
+
+`search` returns manifest rows and never bodies. Narrow with `search`, then fetch what you chose
+with `get`.
+
+## Search parameters
+
+| Field    | Default | Effect                                                  |
+| -------- | ------- | ------------------------------------------------------- |
+| `q`      | required | The query. An empty string is a 400.                   |
+| `k`      | 8       | Ranked matches before link expansion                    |
+| `expand` | `true`  | `false` disables the one-hop expansion over the link graph |
+| `bundle` | none    | Rank only within this bundle, and expand only into it   |
+
+The expansion is capped at `k` and ranked by how many hits point at a target, so a hub concept with
+sixteen outgoing links cannot drag most of the manifest into the result.
+
+## Status codes
+
+| Code | When                                                                    |
+| ---- | ----------------------------------------------------------------------- |
+| 200  | Fine                                                                    |
+| 204  | A write or delete on the source API succeeded                           |
+| 304  | `If-None-Match` matched the current ETag                                |
+| 400  | A malformed body, or a missing concept path                             |
+| 401  | Missing or unknown bearer token                                         |
+| 403  | The token does not grant that tenant, or may read but not write         |
+| 404  | No such route, no such concept, no such bundle                          |
+| 405  | Wrong method for the route                                              |
+| 409  | The tenant has no source directory, or the server cannot recompile      |
+| 412  | A precondition failed on a write                                        |
+| 413  | A concept larger than 1,000,000 bytes                                   |
+| 428  | A write with no precondition header                                     |
+
+Errors carry a plain-text message, not a JSON envelope.
+
+## Write endpoints
+
+Creating, changing and deleting concepts goes through the source API, which writes Markdown rather
+than snapshots. Those routes are covered in [Editing over the
+network](/docs/guides/editing).
+
+```
+GET    /v1/{tenant}/source
+GET    /v1/{tenant}/source/{bundle}/{path}
+PUT    /v1/{tenant}/source/{bundle}/{path}
+DELETE /v1/{tenant}/source/{bundle}/{path}
+DELETE /v1/{tenant}/bundles/{bundle}
+POST   /v1/{tenant}/sync
+```
+
+<Callout title="No HTTP request ever writes a snapshot">
+  The watcher recompiles from source, so a snapshot written directly would be overwritten within
+  seconds. Writing source is the path the design endorses, and it leaves the read API above
+  untouched.
+</Callout>

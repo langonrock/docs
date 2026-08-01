@@ -1,0 +1,98 @@
+---
+title: MCP server
+description: Four tools for Claude Code, Cursor, or anything else that speaks MCP.
+icon: Bot
+---
+
+```sh
+langonrock mcp "okf://$PWD/data?tenant=acme"
+```
+
+The MCP server speaks stdio on top of a `Connection`, so it works against an embedded path, a local
+daemon or a remote server without knowing which.
+
+## Registering it with Claude Code
+
+```sh
+claude mcp add langonrock -- langonrock mcp "okf:///abs/path/to/data?tenant=acme"
+```
+
+Any connection string works, so point it at a [running daemon](/docs/guides/running-a-server)
+instead and every agent invocation shares one process with warm indexes rather than paying cold
+start:
+
+```sh
+claude mcp add langonrock -- langonrock mcp "okf+unix:///tmp/okf.sock?tenant=acme"
+```
+
+## The four tools
+
+| Tool       | Input                          | Output                                    |
+| ---------- | ------------------------------ | ----------------------------------------- |
+| `manifest` | `bundle?`                      | The manifest as TSV                       |
+| `search`   | `query`, `k?`, `bundle?`       | Ranked manifest rows, never bodies        |
+| `get`      | `ids[]`, `section?`            | Concept text, one `@@ id` block each      |
+| `snapshot` | none                           | The current digest                        |
+
+`k` is capped at 50 by the schema. `get` requires at least one id, and reports anything it could
+not find as a trailing `@@ missing` block rather than failing the call.
+
+Four verbs, and no more, because every tool definition costs tokens in the client's system prompt.
+Roughly 200 tokens of schema at four tools against roughly 1500 at fifteen. `manifest` and `search`
+narrow, `get` fetches, `snapshot` invalidates. Nothing else earned a place.
+
+## The manifest is exposed twice
+
+As a tool for every client, and as an MCP **resource** at `okf://manifest` for clients that preload
+resources into context.
+
+The resource path is the one that delivers the central claim of the design. A preloaded manifest
+lands in the cacheable prompt prefix, where it costs roughly a tenth as much on every later turn. A
+manifest arriving mid-conversation as a tool result does not.
+
+```
+okf://manifest    mimeType: text/tab-separated-values
+```
+
+## Tool descriptions state when to call
+
+Not just what the tool does. `manifest` says "call this before anything else whenever you need to
+know what knowledge exists" and "never guess an id". `get` says "pass every id you need in one
+call rather than calling repeatedly; the batch costs one round trip regardless of size".
+
+A description that only describes gets under-triggered. That is a real effect and worth the extra
+tokens in the schema.
+
+The `manifest` description also explains the `status` column, so an agent knows that a cell other
+than `-` means the concept is deprecated or draft, and that it should say so if it uses one anyway.
+
+## The session an agent should have
+
+1. Read the manifest, ideally from the cached prefix rather than by calling the tool.
+2. Pick ids from the rows it already holds.
+3. Call `get` once with all of them, and with `section` when it only needs the schema.
+
+Two round trips, and the second one is batched. On a large tenant, replace step 1 with `search`,
+or with `manifest` narrowed to a bundle.
+
+## Writing is not an MCP tool
+
+There is no `put` verb, and that is deliberate. The source folder is the truth and the watcher
+recompiles from it, so a snapshot written through MCP would be silently replaced by the next
+filesystem event, at most 30 seconds later. The write would look like it succeeded and then quietly
+vanish, which is worse than not offering it.
+
+An agent that should change knowledge edits the source Markdown the way a human does, through
+[the source API](/docs/guides/editing), and the watcher picks it up.
+
+## Debugging it
+
+The stdio transport owns stdout. Anything else written there corrupts the JSON-RPC framing, so all
+diagnostics go to stderr:
+
+```
+langonrock mcp serving okf:///abs/path/to/data?tenant=acme over stdio
+```
+
+A tool that throws returns its message as an error result rather than killing the connection, so a
+bad tenant or a missing store shows up in the client as a readable failure.

@@ -1,0 +1,180 @@
+---
+title: Vocabulary
+description: Concept, bundle, tenant, manifest, snapshot, section, and the rules that generate ids.
+icon: BookOpen
+---
+
+Six words carry most of the design. They are worth pinning down before anything else, because the
+CLI, the API and the store all use them in the same narrow sense.
+
+## Concept
+
+One Markdown file with YAML frontmatter. A table, a dataset, a metric, an API, a runbook.
+
+```yaml
+---
+type: BigQuery Table
+title: Orders
+description: One row per completed customer order.
+grain: order_id
+status: current
+---
+```
+
+Only `type` is required by OKF. langonrock reads five fields and ignores the rest:
+
+| Field         | Becomes            | When absent                                            |
+| ------------- | ------------------ | ------------------------------------------------------ |
+| `type`        | the `kind` column  | `-`, and the compiler reports a diagnostic             |
+| `description` | the `summary` cell | the first prose sentence of the body                   |
+| `grain`       | the `grain` column | `-`                                                     |
+| `status`      | the `status` column | `-`                                                    |
+| body links    | the `links` column | `-`                                                     |
+
+`kind` is slugged, so `BigQuery Table` becomes `bigquery_table`. Everything else in the frontmatter
+is compiled away, which is where much of the token saving comes from.
+
+<Callout title="Only a deviation earns a status cell">
+  A concept with no `status`, or one marked `current`, gets `-`. Only `deprecated`, `draft` and
+  anything else unusual survive into the row. The agent already assumes a concept is current, and
+  the row is paid for on every turn.
+</Callout>
+
+A Markdown file with no frontmatter is not a concept. The compiler skips it and says so, which is
+how a cloned bundle's `README.md` shows up as what it is instead of vanishing without explanation.
+`index.md` and `log.md` are skipped too, since they are OKF navigation rather than knowledge.
+
+## Bundle
+
+One directory of concepts, and the unit an agent narrows to. Every immediate subdirectory of the
+source folder is a bundle, and nesting below that is free.
+
+```
+sources/acme/
+  sales/            <- a bundle
+    tables/orders.md
+    metrics/mrr.md
+  ops/              <- another bundle
+    runbooks/deploy.md
+```
+
+Create a folder to add a bundle. Delete the folder to remove one. Bundle names are validated
+against `[a-z0-9_-]`, up to 64 characters, because the name becomes a directory.
+
+## Tenant
+
+A directory boundary in the store, with its own snapshots and its own search index. Bundles compile
+together into one snapshot per tenant, and the manifest carries a `bundle` column so an agent can
+filter without loading anything extra.
+
+Tenant ids match `[a-z0-9][a-z0-9_-]{0,63}`. The id reaches the filesystem, so it is checked
+against an allowlist and rejected rather than cleaned up and trusted.
+
+Search indexes are per tenant, never shared. A shared index leaks content across tenants through
+ranking alone.
+
+## Concept ids
+
+An id is the shortest unambiguous form of its path, in three tiers:
+
+1. the bare filename, `tables/orders.md` becomes `orders`
+2. the parent and filename, if the bare name collides, `tables/orders`
+3. the full relative path, if that still collides
+
+Short ids are worth the effort because the manifest pays for every id on every read.
+
+Across bundles the same rule applies once more. A bare id stays bare while it is unique across the
+whole tenant, and only the ones that clash pay for a `bundle/` prefix. Links are rewritten to
+match.
+
+<Callout type="warn" title="Creating a file can rename a concept nobody touched">
+  Adding `staging/orders.md` turns an existing `orders` into `tables/orders`, because the bare name
+  is no longer unique. Re-read the manifest or the source listing after a sync rather than assuming
+  ids are stable.
+</Callout>
+
+## Links
+
+The `links` column is built from ordinary Markdown links in the body. No special syntax, and
+nothing in the frontmatter.
+
+```md
+Joined with [customers](./customers.md) on `customer_id`.
+See the [parent dataset](../datasets/orders_db.md).
+```
+
+A link target is resolved relative to the file it appears in, and `.md` is appended when it is
+missing, so `[customers](./customers)` works too. The resulting path is looked up in the same
+path-to-id map the manifest uses, and the id goes in the column.
+
+These are skipped rather than resolved:
+
+| Target                              | Why                              |
+| ----------------------------------- | -------------------------------- |
+| `#section`                          | Same-document anchor             |
+| `https://…`, `mailto:…`, any scheme | External                         |
+| A link back to the concept itself   | Adds nothing to the graph        |
+
+Anchors and query strings are stripped before resolution, so `[orders](./orders.md#schema)` links
+to `orders`.
+
+A target that resolves to no concept becomes a diagnostic:
+
+```
+warn: tables/orders.md: unresolved link "./custmers.md"
+```
+
+Link ids are sorted and deduplicated in the row, which is part of what keeps the manifest
+byte-identical across rebuilds.
+
+## Manifest
+
+One TSV row per concept, and the artifact the whole design exists to produce.
+
+```
+# tenant: acme
+# bundles: ops sales
+id	bundle	kind	status	grain	summary	links
+orders	sales	bigquery_table	-	order_id	One row per completed customer order.	customers
+```
+
+Rows are sorted by bundle, then by id. Link lists are sorted. Nothing carries a timestamp, and
+statistics go to stderr rather than into the file. That is not tidiness, it is a hard requirement:
+the manifest earns its keep by sitting in the cached prompt prefix, and any byte that changes
+between rebuilds invalidates the cache.
+
+Summaries are flattened to a single line and truncated at 120 characters by default, since a tab or
+a newline in a cell would split the row.
+
+## Section
+
+A named byte range inside a concept, taken from its own Markdown headings. `get(id, "schema")`
+returns that slice instead of the whole document.
+
+Heading text is lowercased, non-alphanumeric runs become underscores, and a duplicate name gets a
+numeric suffix. Text before the first heading is `body`. Headings inside fenced code blocks are
+excluded, because a `# comment` line in a SQL example is not a heading and real bundles are full of
+them.
+
+| Heading                   | Section name             |
+| ------------------------- | ------------------------ |
+| `# Schema`                | `schema`                 |
+| `## Common query patterns` | `common_query_patterns` |
+| `### Joins`               | `joins`                  |
+| a second `# Schema`       | `schema_2`               |
+
+## Snapshot
+
+One immutable `.tnt` file holding the manifest, a directory of concept offsets, and zstd-compressed
+bodies. Its name is the sha256 of its own bytes.
+
+Because a snapshot is named by its content, storing an unchanged tree is a no-op, and deleting a
+bundle then restoring it returns to the original snapshot. Rollback is a side effect of the naming
+scheme rather than a feature anyone built.
+
+A one-line `current` file names the active snapshot. It is the only mutable thing in the system.
+
+<Callout type="warn" title="A snapshot is not a backup of your Markdown">
+  It holds the compiled read model. Frontmatter is compiled away and cannot be recovered from it.
+  Keep the source folder in git.
+</Callout>

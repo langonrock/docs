@@ -1,0 +1,236 @@
+---
+title: CLI reference
+description: Every command, every query verb, and every flag.
+icon: Terminal
+---
+
+```sh
+langonrock --help
+langonrock --version
+```
+
+Running with no arguments prints the usage and exits 1. `--help` prints the same thing and exits 0.
+
+## Commands
+
+| Command          | What it does                                          |
+| ---------------- | ----------------------------------------------------- |
+| `compile <dir>`  | Compile one bundle to a manifest on stdout            |
+| `put <dir>`      | Store one directory as one bundle                     |
+| `sync <dir>`     | Store every subdirectory as its own bundle            |
+| `watch <dir>`    | Keep a tenant in sync with a folder                   |
+| `manifest`       | Print the stored manifest                             |
+| `get <id...>`    | Fetch concepts by id                                  |
+| `serve`          | Run the daemon                                        |
+| `token`          | Mint a token and record its grant                     |
+| `query <dsn> …`  | Any read or write verb over any connection string     |
+| `mcp <dsn>`      | Serve MCP over stdio                                  |
+| `gc`             | Collect old and partial snapshots                     |
+
+### compile
+
+```sh
+langonrock compile sources/acme/sales --bundle sales --summary-width 80
+```
+
+Writes the manifest to stdout and nothing to the store, so it is the fastest way to see what the
+compiler makes of a folder. Diagnostics and statistics go to stderr. Without `--bundle`, the
+directory name is used.
+
+### put and sync
+
+`put` treats the directory as a single bundle. `sync` treats every immediate subdirectory as its
+own bundle and compiles them together into one snapshot.
+
+```sh
+langonrock put sources/acme/sales --data ./data --tenant acme --bundle sales
+langonrock sync sources/acme --data ./data --tenant acme
+```
+
+Both report the resulting snapshot on stderr, and both say whether it was new or reused:
+
+```
+snapshot eaf251169a59 (new), 2 bundles [ops sales], 3 concepts, 850 bytes on disk
+```
+
+`(reused)` means the tree hashed to a snapshot that already existed, so nothing was written.
+
+### watch
+
+```sh
+langonrock watch sources/acme --data ./data --tenant acme --debounce 500
+```
+
+Runs until interrupted. Writes inside dot directories are ignored, because `.git` and `.obsidian`
+change constantly and rebuilding on them would never stop.
+
+### manifest and get
+
+```sh
+langonrock manifest --data ./data --tenant acme
+langonrock get orders customers --section schema --data ./data --tenant acme
+```
+
+`get` prints each concept prefixed by `@@ <id>`. It warns on stderr for any id it could not find,
+and exits 1 when at least one is missing.
+
+Both read the store directly. Use [`query`](#query) instead to go through a daemon or a server.
+
+### serve
+
+```sh
+langonrock serve --data ~/okf/data --socket /tmp/okf.sock
+langonrock serve --data ~/okf/data --host 127.0.0.1 --port 7777
+```
+
+Without `--socket`, `--host` or `--port`, the daemon listens on `<data>/langonrock.sock`. See
+[Running a server](/docs/guides/running-a-server).
+
+### token
+
+```sh
+langonrock token --data ~/okf/data --tenant acme            # read-only
+langonrock token --data ~/okf/data --tenant acme --write    # may edit source
+```
+
+The token goes to stdout so you can capture it into a variable. Everything else goes to stderr. See
+[Tokens and TLS](/docs/guides/security).
+
+### gc
+
+```sh
+langonrock gc --data ~/okf/data --dry-run
+langonrock gc --data ~/okf/data --tenant acme --keep 5
+```
+
+Without `--tenant` it collects every tenant. It exits 1 when a tenant's `current` points at a
+snapshot that is missing or truncated. See [Backup and collection](/docs/guides/backups).
+
+### mcp
+
+```sh
+langonrock mcp "okf:///abs/path/to/data?tenant=acme"
+```
+
+Speaks MCP over stdio against any connection string. The transport owns stdout, so diagnostics go
+to stderr only.
+
+## query
+
+```sh
+langonrock query <dsn> <verb> [args]
+```
+
+One command against any [connection mode](/docs/guides/connection-modes), so a local store and a
+remote server are driven the same way.
+
+### Read verbs
+
+| Verb                    | Output                                              |
+| ----------------------- | --------------------------------------------------- |
+| `manifest`              | The manifest, or one bundle with `--bundle`          |
+| `snapshot`              | The current digest                                   |
+| `search <words...>`     | Ranked manifest rows, `--k` and `--bundle` apply     |
+| `get <id...>`           | Concepts, `--section` applies                        |
+
+```sh
+langonrock query "okf+unix:///tmp/okf.sock?tenant=acme" search order grain --k 5
+langonrock query "okf+http://127.0.0.1:7777?token=$TOKEN" manifest --bundle sales
+```
+
+### Write verbs
+
+| Verb                             | What it does                                |
+| -------------------------------- | ------------------------------------------- |
+| `source`                         | List source files with hashes and sizes     |
+| `read <bundle> <path>`           | Print one file, hash on stderr              |
+| `write <bundle> <path>`          | Write one, from stdin or `--from`           |
+| `delete <bundle> <path>`         | Remove one file                             |
+| `delete-bundle <bundle>`         | Remove a whole bundle                       |
+| `sync`                           | Recompile now and report the new snapshot   |
+
+```sh
+langonrock query "$DSN" source
+langonrock query "$DSN" read sales tables/orders.md
+langonrock query "$DSN" write sales metrics/new.md --create < new.md
+langonrock query "$DSN" write sales tables/orders.md --replaces "$HASH" < edited.md
+langonrock query "$DSN" delete sales tables/old.md --force
+langonrock query "$DSN" sync
+```
+
+<Callout type="warn" title="A write must name the version it replaces">
+  `--create`, `--replaces <hash>` and `--force` are the command-line spelling of the same
+  precondition, and there is no default. A `write` with none of them is refused, and `--force` is
+  the honest name for taking whatever is there right now. See [Editing over the
+  network](/docs/guides/editing).
+</Callout>
+
+## Flags
+
+### Store and tenant
+
+| Flag              | Default                                              |
+| ----------------- | ---------------------------------------------------- |
+| `--data <dir>`    | `$LANGONROCK_DATA`, else the platform data directory |
+| `--tenant <id>`   | required by most commands, `[a-z0-9_-]` up to 64 chars |
+
+### Reading
+
+| Flag                  | Default | Applies to           |
+| --------------------- | ------- | -------------------- |
+| `--section <name>`    | none    | `get`                |
+| `--k <n>`             | 8       | `search`             |
+| `--bundle <name>`     | the directory name for `compile`, no filter elsewhere | `compile`, `manifest`, `search` |
+| `--out <file>`        | stdout  | anything that prints |
+
+### Compiling
+
+| Flag                    | Default | Effect                                        |
+| ----------------------- | ------- | --------------------------------------------- |
+| `--summary-width <n>`   | 120     | Maximum characters per summary cell           |
+| `--strict`              | off     | Exit non-zero when any diagnostic is reported |
+
+### Serving
+
+| Flag                 | Default                          |
+| -------------------- | -------------------------------- |
+| `--socket <path>`    | `<data>/langonrock.sock`         |
+| `--host <name>`      | `127.0.0.1` when TCP             |
+| `--port <n>`         | 7777                             |
+| `--tls-cert <file>`  | none, required off loopback      |
+| `--tls-key <file>`   | none, required with `--tls-cert` |
+| `--watch <dir>`      | none, also watch this folder for `--tenant` |
+| `--debounce <ms>`    | 200                              |
+| `--rescan <ms>`      | 30000                            |
+
+`--tls-cert` and `--tls-key` must be given together, and neither works with a unix socket.
+
+### Writing source
+
+| Flag                 | Effect                                        |
+| -------------------- | --------------------------------------------- |
+| `--from <file>`      | Read the content from a file instead of stdin |
+| `--replaces <hash>`  | The hash this change is based on              |
+| `--create`           | The concept must not exist yet                |
+| `--force`            | Use whatever hash is there right now          |
+
+### Tokens
+
+| Flag        | Effect                                |
+| ----------- | ------------------------------------- |
+| `--write`   | The token may change source Markdown  |
+
+### Collection
+
+| Flag           | Default   | Effect                                 |
+| -------------- | --------- | -------------------------------------- |
+| `--keep <n>`   | 10        | Snapshots to retain per tenant         |
+| `--grace <ms>` | 3600000   | Never collect anything newer than this |
+| `--dry-run`    | off       | Report what would be removed           |
+
+## Exit codes
+
+| Code | Meaning                                                                                              |
+| ---- | ---------------------------------------------------------------------------------------------------- |
+| 0    | Success                                                                                              |
+| 1    | An error, a missing concept in `get`, a corrupt `current` in `gc`, or any diagnostic under `--strict` |

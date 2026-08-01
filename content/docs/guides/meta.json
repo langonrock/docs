@@ -1,0 +1,16 @@
+{
+  "title": "Guides",
+  "icon": "Wrench",
+  "pages": [
+    "cli",
+    "connection-modes",
+    "running-a-server",
+    "security",
+    "mcp",
+    "http-api",
+    "editing",
+    "library",
+    "large-tenants",
+    "backups"
+  ]
+}

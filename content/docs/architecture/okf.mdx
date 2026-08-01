@@ -1,0 +1,145 @@
+---
+title: What OKF is
+description: The format this project compiles, and the state of the ecosystem around it.
+icon: FileText
+---
+
+The Google Cloud data team published Open Knowledge Format in June 2026 as v0.1. Version 0.2
+shipped 25 July 2026.
+
+It is a vendor-neutral open specification for representing organizational knowledge so agents can
+consume it. In practice it formalizes the LLM-wiki pattern into a portable format: a directory of
+Markdown files with YAML frontmatter. No SDK, no runtime, no registry.
+
+The problem it targets is context assembly. Internal knowledge lives in metadata catalogs behind
+proprietary APIs, wikis, shared drives, code comments, and the heads of senior engineers. Every
+team building an agent solves the gathering problem again from zero.
+
+## Structure
+
+Each file is a concept, meaning a table, dataset, metric, API, or runbook.
+
+```yaml
+---
+type: BigQuery Table
+title: Orders
+description: One row per completed customer order.
+resource: https://console.cloud.google.com/bigquery?p=acme&d=sales&t=orders
+tags: [sales, revenue]
+timestamp: 2026-05-28T14:30:00Z
+---
+```
+
+The body is ordinary Markdown. Links between files form the knowledge graph.
+
+```
+sales/
+  index.md
+  datasets/orders_db.md
+  tables/orders.md
+  tables/customers.md
+  metrics/weekly_active_users.md
+```
+
+Only `type` is required. Everything else is standardized but optional, and bundles may add their
+own keys. `index.md` gives navigation and `log.md` gives history. Both optional, and langonrock
+skips both, since they are navigation rather than knowledge.
+
+## What v0.2 added
+
+Trust and provenance became first-class: `sources`, `generated`, `verified`, `status`,
+`stale_after`.
+
+If v0.1 asked what your content is, v0.2 asks who stands behind it. That is the part worth
+adopting. A plain `CLAUDE.md` cannot tell you whether it is still true.
+
+Of those, `status` is the one that reaches the manifest, because it changes whether an agent should
+use the concept at all. See [the read model](/docs/architecture/read-model) for why the others do
+not.
+
+## Design principles from the spec
+
+The format is minimally opinionated, producers and consumers stay independent, and it is a format
+rather than a platform. No vendor account required to read it.
+
+That is why compiling it is legitimate. Nothing in the spec asks a consumer to read the files the
+way the reference implementation does.
+
+## What Google actually ships
+
+Repository `GoogleCloudPlatform/knowledge-catalog`, Apache 2.0.
+
+- The specification, `okf/SPEC.md`, currently v0.2
+- A reference enrichment agent in Python 3.13. It walks a BigQuery dataset, drafts a concept per
+  table and view, then runs a second LLM pass that crawls documentation and adds citations, schemas
+  and join paths. Only useful if your source is BigQuery.
+- A visualizer that renders any bundle as a self-contained HTML force-directed graph. No backend,
+  nothing leaves the page.
+- `kcmd`, a CLI and MCP server that syncs with Google Cloud Knowledge Catalog
+- Four sample bundles: GA4, Stack Overflow, Bitcoin, Acme Retail
+
+Those samples are demos. Google published no general-purpose knowledge corpus.
+
+## The ecosystem
+
+[BundleDex](https://bundledex.net/) indexes 381 bundles from 333 authors, of which 148 carry the
+OKF-conformant badge. Domains cover education, healthcare, infrastructure, finance, COBOL and
+philosophy. Some come from Databricks and Pulumi, most from individuals.
+
+Quality signals are thin. Stars, a conformance badge, and a Draft marker. There is no unified
+install path, since each bundle links to its own repository. Treat it as an awesome-list, not a
+trusted registry.
+
+### Community tooling
+
+| Tool                | What it does                                              |
+| ------------------- | --------------------------------------------------------- |
+| `okflint`           | Deterministic conformance checker, Python, MIT             |
+| Kiso                | Validator and static-site builder, Java, Apache-2.0        |
+| OpenWiki            | Wires codebases into OKF, Python, MIT                      |
+| `superops-team/okf` | Go CLI generating bundles from git repositories            |
+| `signed-okf`        | Cryptographic signatures, optional OriginTrail anchoring   |
+| `hermes-okf`        | Filesystem memory storing agent decisions as concepts      |
+| `okf-skill`         | A single-file agent skill for Claude Code and Cursor       |
+
+Obsidian works as-is, since a bundle is already a vault. langonrock keeps that true by never
+touching your source folder.
+
+### LangGraph and LangChain
+
+[`okf-agents`](https://github.com/RonCodes88/okf-agents), MIT, Python 3.11 to 3.13.
+
+```python
+from okf_agents import OKFBundle, create_okf_tools
+bundle = OKFBundle.load("./my_markdown_docs")
+tools = create_okf_tools(bundle)
+```
+
+It exposes `read_concept`, `search_concepts`, `list_links`, `read_index`, two retrievers, a router,
+and a navigator subgraph with hop and token budgets. That navigator is the baseline the
+[benchmarks](/docs/architecture/benchmarks) measure against.
+
+Maturity: 4 stars, 28 commits, one person, a few weeks old at the time of writing. Read the code
+before trusting it. It is small enough to audit in an afternoon or replace outright.
+
+### MCP servers
+
+`okf-mcp`, `okf-ingest` with verbs `context`, `search`, `impact`, `diff` and `doctor`, and
+okfbundle.com. All community.
+
+## The verdict that motivated this project
+
+There is no ready-made knowledge base to download that makes an agent smarter. What exists is a
+format plus an uneven community directory.
+
+The real value of OKF today is as a convention for knowledge you write yourself. Your schemas,
+metrics, runbooks, architecture decisions. That is what this project stores.
+
+## References
+
+- [How the Open Knowledge Format can improve data sharing, Google Cloud Blog](https://cloud.google.com/blog/products/data-analytics/how-the-open-knowledge-format-can-improve-data-sharing)
+- [GoogleCloudPlatform/knowledge-catalog](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/README.md)
+- [OKF ecosystem tools](https://okf.md/tools/)
+- [BundleDex, the OKF bundle directory](https://bundledex.net/)
+- [okf-agents, LangChain and LangGraph](https://github.com/RonCodes88/okf-agents)
+- [okf-mcp](https://github.com/hdean-ssp/okf-mcp)

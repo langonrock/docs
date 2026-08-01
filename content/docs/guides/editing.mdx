@@ -1,0 +1,174 @@
+---
+title: Editing over the network
+description: Create, change and delete concepts through the API, without losing anyone's edit.
+icon: PenLine
+---
+
+An editor needs to create, change and delete concepts remotely. It does that by writing the
+**source Markdown**, never a snapshot. The watcher recompiles from source, so it would overwrite a
+snapshot written directly within seconds.
+
+## Turning it on
+
+Two files, both covered in [Running a server](/docs/guides/running-a-server).
+
+`sources.json` says where a tenant's Markdown is. `tokens.json` says which tokens may change it. A
+tenant with no entry in `sources.json` stays readable and refuses writes with a 409, which is the
+right default and needs no flag.
+
+```json
+{ "acme": "/home/me/okf/sources/acme" }
+```
+
+```json
+{ "editor-token": { "tenant": "acme", "write": true } }
+```
+
+## The routes
+
+```
+GET    /v1/{tenant}/source                 list files with sizes and hashes
+GET    /v1/{tenant}/source/{bundle}/{path} read one, ETag is its content hash
+PUT    /v1/{tenant}/source/{bundle}/{path} write
+DELETE /v1/{tenant}/source/{bundle}/{path} delete
+DELETE /v1/{tenant}/bundles/{bundle}       delete a whole bundle
+POST   /v1/{tenant}/sync                   recompile now, return the new digest
+```
+
+Writing the first file into a folder creates the bundle, and deleting the folder removes it,
+exactly as it works on disk.
+
+## Every write names the version it replaces
+
+<Callout type="warn" title="There is no default">
+  `If-Match: "<hash>"` to overwrite, or `If-None-Match: *` to insist the concept is new. Neither
+  header is a `428`. A stale hash is a `412`.
+</Callout>
+
+Two people editing one concept is the normal case for an editor, and a silently lost update is the
+worst failure this API could have. Requiring the header makes the unsafe call impossible rather
+than merely discouraged.
+
+| Precondition        | Concept exists | Result                          |
+| ------------------- | -------------- | ------------------------------- |
+| `If-None-Match: *`  | no             | 204, created                    |
+| `If-None-Match: *`  | yes            | 412, `concept already exists`   |
+| `If-Match: "<hash>"` | yes, same hash | 204, replaced                   |
+| `If-Match: "<hash>"` | yes, different | 412, `concept changed since it was read` |
+| `If-Match: "<hash>"` | no             | 412, `concept does not exist`   |
+| none                | either         | 428                             |
+
+A successful write answers 204 with the new hash in the `ETag`, so the client can chain edits
+without re-reading.
+
+Deleting a whole bundle carries no precondition. The previous snapshot still holds every concept
+until the collector runs, so a mistake is recoverable from the store's own history.
+
+## Through the library
+
+The precondition is an argument, enforced identically whether you are embedded or remote.
+
+```ts
+const knowledge = open('okf+https://host:7777?token=editor-token');
+
+const before = await knowledge.readSource('sales', 'tables/orders.md');
+await knowledge.writeSource('sales', 'tables/orders.md', edited, before?.hash);
+await knowledge.writeSource('sales', 'metrics/new.md', created); // no hash: must not exist
+const { snapshot } = await knowledge.sync();
+```
+
+Embedded enforces the same rule on purpose. If only the server checked, an editor developed against
+a local path would lose edits the moment it was pointed at a server, which is exactly the bug this
+is meant to prevent.
+
+## The listing tells you which concept a file becomes
+
+```json
+{
+  "bundle": "sales",
+  "path": "tables/orders.md",
+  "id": "sales/orders",
+  "hash": "…",
+  "bytes": 412
+}
+```
+
+A client never has to reimplement the naming rule. A file with no `id` is not a concept. It has no
+frontmatter, so the compiler skips it. That is how a cloned repository's `README.md` shows up as
+what it is instead of vanishing without explanation.
+
+<Callout type="warn" title="Creating a file can rename a concept nobody touched">
+  Concept ids are the shortest unambiguous form of their path, so adding `staging/orders.md` turns
+  an existing `orders` into `tables/orders`. Re-read the listing or the manifest after a sync
+  rather than assuming ids are stable.
+</Callout>
+
+## Diagnostics are the lint
+
+`sync` returns what the compiler noticed on the way. A missing `type`, a link resolving to nothing,
+a file skipped for having no frontmatter. That is what an editor should put in front of whoever is
+writing.
+
+```ts
+const { snapshot, concepts, bundles, diagnostics } = await knowledge.sync();
+```
+
+Each diagnostic carries a level, the file path, and a message.
+
+| Message                                          | What it means                                       |
+| ------------------------------------------------ | --------------------------------------------------- |
+| `skipped: no frontmatter, so not an OKF concept` | The file is not a concept and produced no row        |
+| `missing required frontmatter field "type"`      | The `kind` cell will be `-`                          |
+| `unresolved link "…"`                            | A Markdown link points at no concept in the tenant   |
+| `invalid YAML frontmatter: …`                    | The block did not parse, so every field was lost     |
+| `frontmatter is not a mapping`                   | It parsed to a list or a scalar                      |
+
+Every one of these is `warn`. The `error` level exists in the type and nothing emits it today, so
+a compile always produces a snapshot. Use `--strict` on the CLI to make any diagnostic an exit
+code instead.
+
+## When the snapshot appears
+
+`PUT` returns as soon as the file is on disk, so saving is fast. The snapshot follows on the
+watcher's debounce, 200 ms by default.
+
+Call `sync` when you need the new digest immediately. It waits for a compile that began after the
+call, never one already in flight that may have read the tree before your write landed. A caller
+that asks for the new snapshot and gets the previous digest is the same failure as a write that
+silently vanishes.
+
+On a large tenant a compile is a few hundred milliseconds, so an aggressively autosaving editor
+should raise `--debounce` rather than sync on every keystroke.
+
+## From the command line
+
+The same verbs work against any connection string, so you can edit a local store and a remote one
+the same way.
+
+```sh
+langonrock query "$DSN" source                              # list, with hashes
+langonrock query "$DSN" read sales tables/orders.md         # content out, hash on stderr
+langonrock query "$DSN" write sales metrics/new.md --create < new.md
+langonrock query "$DSN" write sales tables/orders.md --replaces "$HASH" < edited.md
+langonrock query "$DSN" delete sales tables/old.md --force
+langonrock query "$DSN" delete-bundle old-bundle
+langonrock query "$DSN" sync
+```
+
+`--create`, `--replaces <hash>` and `--force` are the command-line spelling of the precondition.
+The CLI does not quietly read the current hash for you. `--force` does exactly that, and it is
+named so that it reads like one.
+
+## What it rejects
+
+Paths are validated before they reach the filesystem, and rejected rather than cleaned up:
+
+- forward slashes only, no backslashes, no null bytes, not absolute
+- must end in `.md`
+- no segment may start with a dot, since the watcher ignores dot directories and the write would
+  look like it worked while never compiling
+- 200 characters maximum, because Windows caps a path at 260
+- 1,000,000 bytes per concept
+
+Bundle names match `[a-z0-9][a-z0-9_-]{0,63}`, the same rule as a tenant id, because both become
+directories.

@@ -1,0 +1,185 @@
+---
+title: Library
+description: open(), the Connection interface, and the Node-compatible client.
+icon: Code
+---
+
+```ts
+import { open } from 'langonrock';
+
+const knowledge = open('okf:///var/data?tenant=acme');
+
+const manifest = await knowledge.manifest('sales');
+const hits = await knowledge.search('order grain', { k: 5 });
+const concepts = await knowledge.get(['orders', 'customers'], 'schema');
+```
+
+`open(dsn)` returns the same interface for every [connection
+mode](/docs/guides/connection-modes). Develop embedded, deploy remote, change nothing at the call
+site.
+
+## Connection
+
+```ts
+interface Connection {
+  readonly transport: Transport;
+  snapshot: () => Promise<string>;
+  manifest: (bundle?: string) => Promise<string>;
+  get: (ids: string[], section?: string) => Promise<Map<string, string>>;
+  search: (query: string, options?: SearchOptions) => Promise<string>;
+  listSource: () => Promise<SourceEntry[]>;
+  readSource: (bundle: string, path: string) => Promise<SourceFile | undefined>;
+  writeSource: (bundle: string, path: string, content: string, replaces?: string) => Promise<string>;
+  deleteSource: (bundle: string, path: string, replaces: string) => Promise<void>;
+  deleteBundle: (bundle: string) => Promise<void>;
+  sync: () => Promise<SyncResult>;
+  close: () => Promise<void>;
+}
+```
+
+`manifest` and `search` return TSV as a string, because that is what goes into a prompt. `get`
+returns a `Map` keyed by id, with missing ids simply absent.
+
+<Callout title="Remote connections revalidate the manifest for you">
+  A remote or socket connection keeps the last manifest body and its ETag, per bundle, and sends
+  `If-None-Match` on every later call. An unchanged snapshot answers 304 and the cached string comes
+  back with no transfer. Calling `manifest()` on every turn is therefore cheap, and you do not need
+  to compare `snapshot()` yourself first.
+</Callout>
+
+```ts
+interface SearchOptions {
+  k?: number;      // ranked matches before expansion, default 8
+  expand?: boolean; // one-hop link expansion, default true
+  bundle?: string;  // rank and expand within one bundle
+}
+
+interface SourceEntry {
+  bundle: string;
+  path: string;
+  bytes: number;
+  hash: string;
+  id?: string; // absent when the file is not a concept
+}
+
+interface SyncResult {
+  snapshot: string;
+  concepts: number;
+  bundles: string[];
+  diagnostics: Diagnostic[];
+}
+```
+
+## From an app that is not on Bun
+
+The package above needs Bun. The store uses `Bun.file`, `Bun.Glob`, `Bun.YAML` and zstd, none of
+which exist on Node. A desktop editor usually cannot import it, since Electron's main process is
+Node and Tauri's front end is a webview.
+
+`langonrock/client` is the same `Connection` over the network only, with nothing under it but
+`fetch`:
+
+```ts
+import { connect } from 'langonrock/client';
+
+const knowledge = connect('okf+http://127.0.0.1:7777?token=...');
+const before = await knowledge.readSource('sales', 'tables/orders.md');
+
+await knowledge.writeSource('sales', 'tables/orders.md', edited, before?.hash);
+await knowledge.sync();
+```
+
+It runs on Node, Deno, Electron, Tauri and the browser, and a test asserts that rather than
+trusting it. The test bundles the entry point for Node and fails on any `Bun.` reference or
+filesystem import.
+
+A `okf+unix:` string works from this client too, through `fetch`'s `unix` option. That is a Bun and
+Node extension, and a browser ignores it, which is correct since a browser has no socket to reach
+anyway.
+
+`connect()` refuses an embedded `okf://` string with an explanation rather than failing silently,
+since it has no filesystem to open.
+
+<Callout title="The shape that works for a desktop app">
+  One HTTP client with two configurations. Locally, ship the `langonrock` binary as a sidecar and
+  spawn `langonrock serve --socket <path>`. Remotely, point the same client at a server with a
+  token. Nothing at the call site changes.
+</Callout>
+
+<Callout type="warn" title="Windows has no unix socket here">
+  A local sidecar there means loopback TCP, and the server refuses TCP without tokens. Generate one
+  per session and pass it in the connection string.
+</Callout>
+
+## The pieces, if you want them instead
+
+The compiler, store, reader, watcher and search are all exported.
+
+```ts
+import {
+  compileBundle,
+  compileTenant,
+  discoverBundles,
+  splitSections,
+  openTenant,
+  putBundle,
+  putTenant,
+  putTenantRoot,
+  watchTenant,
+  buildTenantIndex,
+  searchTenant,
+  serve,
+  collect,
+  collectAll,
+} from 'langonrock';
+```
+
+| Export             | What it gives you                                              |
+| ------------------ | -------------------------------------------------------------- |
+| `compileBundle`    | One directory to `{ concepts, diagnostics, tsv, bodies }`       |
+| `compileTenant`    | Several bundles merged, with ids and links rewritten            |
+| `discoverBundles`  | The immediate subdirectories of a source root                   |
+| `splitSections`    | Heading byte ranges for one body                                |
+| `openTenant`       | A reader over the current snapshot                              |
+| `putTenantRoot`    | Compile every subdirectory of a source root and write a snapshot |
+| `putTenant`        | The same, from an explicit list of `{ name, dir }` bundles      |
+| `putBundle`        | Store one directory as a single bundle                          |
+| `watchTenant`      | A watcher with `ready`, `sync()` and `close()`                  |
+| `buildTenantIndex` | A BM25 index over a reader                                      |
+| `serve`            | The HTTP server, given PEM strings rather than paths            |
+| `collect`          | Snapshot collection for one tenant                              |
+
+Lower-level pieces are exported too: `parseFrontmatter`, `deriveIds`, `resolveLinks`, `scanBundle`,
+`parseHeader`, `parseDir`, `encodeTnt`, `estimateTokens`, `platformDataDir`, `resolveDataDir`,
+`loadTokens`, `addToken`, `generateToken`, `loadSources`, `assertTenantId`.
+
+## Compiling without a store
+
+```ts
+import { compileBundle } from 'langonrock';
+
+const { tsv, concepts, diagnostics, bodies } = await compileBundle('sources/acme/sales', {
+  bundle: 'sales',
+  summaryWidth: 120,
+});
+```
+
+That is the cheapest useful version of the whole idea. Generate the manifest over your existing
+OKF, put it in the prompt prefix, and you have captured most of the token saving before building
+anything else.
+
+## Reading a snapshot directly
+
+```ts
+import { openTenant } from 'langonrock';
+
+const reader = await openTenant('./data', 'acme');
+
+reader.snapshot; // the digest
+reader.ids; // every concept id
+await reader.manifest('sales'); // one contiguous slice, no parsing
+await reader.get(['orders'], 'schema');
+```
+
+Readers take no lock, ever. Snapshots are immutable, so a reader either sees the old one or the new
+one, never a partial write.
