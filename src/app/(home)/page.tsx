@@ -401,7 +401,7 @@ export default function HomePage() {
                 max={835922}
                 groups={[
                   {
-                    label: '500 concepts',
+                    label: '1 bundle, 500',
                     whole: { label: 'Whole manifest', value: 20549, display: '20,549' },
                     slice: {
                       label: 'One bundle slice',
@@ -411,7 +411,7 @@ export default function HomePage() {
                     },
                   },
                   {
-                    label: '5,000 concepts',
+                    label: '10 bundles, 5,000',
                     whole: { label: 'Whole manifest', value: 205851, display: '205,851' },
                     slice: {
                       label: 'One bundle slice',
@@ -421,7 +421,7 @@ export default function HomePage() {
                     },
                   },
                   {
-                    label: '20,000 concepts',
+                    label: '40 bundles, 20,000',
                     whole: { label: 'Whole manifest', value: 835922, display: '835,922' },
                     slice: {
                       label: 'One bundle slice',
@@ -439,8 +439,9 @@ export default function HomePage() {
                 ]}
               />
               <p className="mt-4 text-sm text-fd-muted-foreground">
-                The slice stays flat as the tenant grows, because the snapshot groups rows by bundle
-                and the reader hands back a byte range.
+                The tenant grows by adding bundles of 500 concepts, so the slice a reader asks for
+                stays the same size while the whole manifest does not. With one bundle the two are
+                the same 20,549 tokens, which is why the first pair matches.
               </p>
             </div>
           </div>

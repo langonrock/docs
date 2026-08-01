@@ -22,9 +22,13 @@ reader rather than per call.
 
 | Concepts         |    500 |   5,000 |  20,000 |
 | ---------------- | -----: | ------: | ------: |
+| Bundles          |      1 |      10 |      40 |
 | Whole manifest   | 20,549 | 205,851 | 835,922 |
 | One bundle slice | 20,549 |  20,419 |  20,486 |
 | Snapshot on disk | 0.5 MB |  5.0 MB | 20.1 MB |
+
+Each bundle holds 500 concepts, so the slice a reader asks for stays the same size as the tenant
+grows. At 500 concepts there is only one bundle, which is why the first column matches.
 
 The slice stays flat as the tenant grows. That is the whole trick: a 20,000-concept tenant costs
 20,486 tokens to read one bundle of it, against 835,922 for all of it.

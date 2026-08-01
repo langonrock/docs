@@ -56,11 +56,17 @@ that same model.
 
 ## Scale
 
+The tenant grows by adding bundles of 500 concepts each, which is what the `1 500`, `10 500` and
+`40 500` runs mean. That is why the slice stays the same size.
+
 | Concepts         |    500 |   5,000 |  20,000 |
 | ---------------- | -----: | ------: | ------: |
+| Bundles          |      1 |      10 |      40 |
 | Whole manifest   | 20,549 | 205,851 | 835,922 |
 | One bundle slice | 20,549 |  20,419 |  20,486 |
 | Snapshot on disk | 0.5 MB |  5.0 MB | 20.1 MB |
+
+At 500 concepts there is only one bundle, so the whole manifest and the slice are the same number.
 
 The bundle slice stays flat as the tenant grows. That is what makes a [large
 tenant](/docs/guides/large-tenants) usable at all.
