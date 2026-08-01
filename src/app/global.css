@@ -47,3 +47,23 @@ html > body[data-scroll-locked] {
   margin-right: 0px !important;
   --removed-body-scroll-bar-size: 0px !important;
 }
+
+/*
+ * The mark's own contour is near-black and closes up against the dark shell, so
+ * its silhouette is redrawn in white. Each filter takes the previous one's
+ * result as input, which is what lets four axial passes cover the diagonals.
+ */
+/*
+ * The header offers link slots only left of the title or right of the search, and the
+ * group holding the search grows to absorb the row's free space, which starves the
+ * auto margin that would otherwise carry the docs link across. Dropping that growth
+ * hands the free space back to the margin, landing the link just before the search.
+ */
+#nd-home-layout #nd-nav .flex-1 {
+  flex-grow: 0;
+}
+
+.lr-nav-mark {
+  filter: drop-shadow(1px 0 0 #fff) drop-shadow(-1px 0 0 #fff) drop-shadow(0 1px 0 #fff)
+    drop-shadow(0 -1px 0 #fff);
+}

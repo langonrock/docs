@@ -1,4 +1,5 @@
 import { ImageResponse } from 'next/og';
+import { ogMark } from '@/lib/og-mark';
 import { appName, siteTagline } from '@/lib/shared';
 import { dump, manifestBytes } from './(home)/manifest';
 
@@ -20,8 +21,9 @@ const ON_COBALT = '#060d1a';
  * width boxes rather than trusting the glyph advance. The bytes are the real
  * compiled manifest, the same ones the page renders.
  */
-export default function OpenGraphImage() {
+export default async function OpenGraphImage() {
   const preview = dump(manifestBytes, 48);
+  const mark = await ogMark();
 
   return new ImageResponse(
     (
@@ -37,6 +39,7 @@ export default function OpenGraphImage() {
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <img src={mark} width={50} height={70} alt="" />
           <span style={{ fontSize: 30, color: INK, fontWeight: 600 }}>{appName}</span>
           <span style={{ fontSize: 30, color: FAINT }}>/</span>
           <span style={{ fontSize: 26, color: DIM }}>langonrock</span>
@@ -48,8 +51,7 @@ export default function OpenGraphImage() {
           </span>
           <span style={{ fontSize: 24, color: DIM, lineHeight: 1.4 }}>
             No embeddings, no vector database, no re-index after every edit. It compiles your
-            Markdown into one manifest and serves concepts by id, with no model in the retrieval
-            path.
+            Markdown into one manifest, with no model in the retrieval path.
           </span>
         </div>
 
