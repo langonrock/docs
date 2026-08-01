@@ -1,0 +1,190 @@
+---
+title: Source API
+description: How content becomes data — the Macro API, the loader, and the helpers built on top.
+icon: Database
+---
+
+`src/lib/source.ts` is the hinge of the whole project. Every route that touches content imports
+`source` from it. It is about fifty lines, and worth reading in full before changing anything.
+
+```ts title="src/lib/source.ts"
+import { loader } from 'fumadocs-core/source';
+import { lucideIconsPlugin } from 'fumadocs-core/source/lucide-icons';
+import { docsContentRoute, docsImageRoute, docsRoute } from './shared';
+import { defineDocs } from 'fumadocs-mdx/macro';
+import { metaSchema, pageSchema } from 'fumadocs-core/source/schema';
+
+const docs = defineDocs({
+  dir: 'content/docs',
+  docs: {
+    schema: pageSchema,
+    postprocess: {
+      includeProcessedMarkdown: true,
+    },
+  },
+  meta: {
+    schema: metaSchema,
+  },
+});
+
+export const source = loader({
+  baseUrl: docsRoute,
+  source: docs.toFumadocsSource(),
+  plugins: [lucideIconsPlugin()],
+});
+```
+
+## The Macro API
+
+`defineDocs` comes from `fumadocs-mdx/macro`, and it is not an ordinary function. Calling it at
+runtime throws — it is a compile-time marker.
+
+A bundler loader (`fumadocs-mdx/webpack/macro`, registered by `createMDX()` in `next.config.mjs`)
+scans source files for the literal string `'fumadocs-mdx/macro'`, and rewrites any `defineDocs` call
+it finds into static imports of the matching content files. By the time the code runs, `docs` is an
+already-resolved collection.
+
+<Callout type="warn" title="Arguments must be static literals">
+  Because the transform happens before execution, `dir`, `files`, `async`, and friends must be
+  literal values the loader can read from the syntax tree. Computing a directory from an environment
+  variable, or spreading in an object built at runtime, produces a collection with no content and
+  no obvious error.
+</Callout>
+
+This is why **there is no `source.config.ts`** in this project. Older Fumadocs versions declared
+collections in that file and generated a `.source` index from it. Here the declaration lives inline
+and the generation is driven by the bundler. The `.source` directory is still emitted, but with no
+`source.config.ts` present its exports are empty — all real wiring goes through the macro.
+
+Default scan globs: `**/*.{js,jsx,mjs,ts,tsx,mts}`, excluding `node_modules`.
+
+## `includeProcessedMarkdown`
+
+```ts
+postprocess: {
+  includeProcessedMarkdown: true,
+}
+```
+
+This one flag makes `page.data.getText('processed')` available — the page's content after MDX
+processing, as plain Markdown text.
+
+<Callout type="error">
+  Removing it breaks `/llms.txt`, `/llms-full.txt`, and `/llms.mdx/docs/*/content.md` at once, since
+  all three call `getLLMText()`, which calls `getText('processed')`. See
+  [LLM Routes](/docs/development/llm-routes).
+</Callout>
+
+It costs build time and output size, because the processed Markdown for every page is retained.
+That is the trade for having machine-readable content.
+
+## Schemas
+
+`pageSchema` validates the frontmatter of each `.mdx` file; `metaSchema` validates each `meta.json`.
+Both are Zod schemas from `fumadocs-core/source/schema`, so violations fail the build. Their fields
+are documented in [Frontmatter](/docs/writing/frontmatter) and
+[Navigation](/docs/writing/navigation).
+
+## The loader
+
+```ts
+export const source = loader({
+  baseUrl: docsRoute,
+  source: docs.toFumadocsSource(),
+  plugins: [lucideIconsPlugin()],
+});
+```
+
+`loader()` turns the raw collection into the query interface used across the app.
+
+| Option | Effect |
+| --- | --- |
+| `baseUrl` | URL prefix for every page. `docsRoute` is `/docs`. |
+| `source` | The collection, converted by `toFumadocsSource()`. |
+| `plugins` | `lucideIconsPlugin()` turns `icon` strings into rendered Lucide components. |
+
+### The API you will use
+
+| Call | Returns | Used by |
+| --- | --- | --- |
+| `source.getPage(slugs)` | One page, or `undefined` | The docs page, the Markdown route, the OG route |
+| `source.getPages()` | Every page | `/llms-full.txt` |
+| `source.getPageTree()` | The sidebar tree | `src/app/docs/layout.tsx` |
+| `source.generateParams()` | Static params for every page | `generateStaticParams()` |
+| `source['$inferPage']` | The page type | The helper signatures below |
+
+A page carries `slugs`, `url`, `path` (its path relative to the collection directory), `locale`, and
+`data` — where `data` holds the validated frontmatter plus `body` (the compiled component), `toc`,
+and `getText()`.
+
+## The URL helpers
+
+Three exported functions build the derived URLs for a page.
+
+```ts title="src/lib/source.ts"
+export function getPageImageUrl(page: (typeof source)['$inferPage']) {
+  const segments = [...page.slugs, 'image.png'];
+
+  return {
+    segments,
+    url: '/' + [page.locale, ...docsImageRoute.split('/'), ...segments].filter(Boolean).join('/'),
+  };
+}
+
+export function getPageMarkdownUrl(page: (typeof source)['$inferPage']) {
+  const segments = [...page.slugs, 'content.md'];
+
+  return {
+    segments,
+    url: '/' + [page.locale, ...docsContentRoute.split('/'), ...segments].filter(Boolean).join('/'),
+  };
+}
+
+export async function getLLMText(page: (typeof source)['$inferPage']) {
+  const processed = await page.data.getText('processed');
+
+  return `# ${page.data.title} (${page.url})
+
+${processed}`;
+}
+```
+
+### The synthetic trailing segment
+
+Both URL helpers append a fake filename — `image.png` or `content.md`. A page at
+`/docs/writing/frontmatter` therefore gets:
+
+- `/og/docs/writing/frontmatter/image.png`
+- `/llms.mdx/docs/writing/frontmatter/content.md`
+
+The suffix exists so the URLs look like files: browsers, crawlers, and social scrapers treat
+`image.png` as an image and `content.md` as Markdown without needing to inspect headers.
+
+The cost is that the route handlers receive that extra segment and must strip it before looking the
+page up:
+
+```ts title="src/app/llms.mdx/docs/[[...slug]]/route.ts"
+const page = source.getPage(slug?.slice(0, -1));
+```
+
+<Callout type="warn">
+  Forgetting `.slice(0, -1)` in a new route means `getPage` looks for a page literally named
+  `image.png` and returns `undefined` — a 404 with no other symptom. If you add a route in this
+  family, copy the pattern.
+</Callout>
+
+`page.locale` appears in both helpers even though i18n is not configured. It is `undefined`, and
+`.filter(Boolean)` drops it, so the URLs are unaffected. It is scaffold groundwork for a
+multi-language setup that has not happened.
+
+## Changing the content directory
+
+`dir: 'content/docs'` must stay a literal. To move content elsewhere, edit that string directly —
+and edit `src/app/docs/[[...slug]]/page.tsx`, where the GitHub edit link hardcodes the same path:
+
+```tsx
+githubUrl={`https://github.com/${gitConfig.user}/${gitConfig.repo}/blob/${gitConfig.branch}/content/docs/${page.path}`}
+```
+
+The URL prefix is separate: that is `docsRoute` in `src/lib/shared.ts`, and changing it updates the
+pages and `proxy.ts` together.

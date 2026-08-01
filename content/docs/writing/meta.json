@@ -1,0 +1,5 @@
+{
+  "title": "Writing Content",
+  "icon": "PenLine",
+  "pages": ["mdx-basics", "frontmatter", "components", "navigation"]
+}

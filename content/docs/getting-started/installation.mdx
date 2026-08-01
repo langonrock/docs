@@ -1,0 +1,96 @@
+---
+title: Installation
+description: Prerequisites, first run, and what the build generates.
+icon: Download
+---
+
+import { Steps, Step } from 'fumadocs-ui/components/steps';
+
+## Prerequisites
+
+**Node.js.** The project has no `engines` field and no `.nvmrc`, so nothing enforces a version.
+Next.js 16 requires Node 20.9 or newer; this project is developed on Node 24.
+
+**npm.** `package-lock.json` (lockfile version 3) is the only lockfile in the repository. There is
+no `pnpm-lock.yaml`, `yarn.lock`, or `bun.lockb`. Use npm unless you intend to migrate the whole
+project, since installing with another package manager produces a second lockfile that will drift.
+
+## First run
+
+<Steps>
+<Step>
+
+### Install dependencies
+
+```bash
+npm install
+```
+
+</Step>
+<Step>
+
+### Start the dev server
+
+```bash
+npm run dev
+```
+
+</Step>
+<Step>
+
+### Open the site
+
+Visit [http://localhost:3000](http://localhost:3000) for the landing page, or
+[http://localhost:3000/docs](http://localhost:3000/docs) for the documentation.
+
+</Step>
+</Steps>
+
+Edits to files under `content/docs/` are picked up without restarting — a file watcher regenerates
+the content index and Next.js hot-reloads the page.
+
+## What the first run generates
+
+Three directories appear that are not in version control. All three are listed in `.gitignore`, and
+deleting them is always safe.
+
+| Path | Created by | Contents |
+| --- | --- | --- |
+| `.source/` | `createMDX()` in `next.config.mjs` | Generated content index (`server.ts`, `dynamic.ts`, `browser.ts`) |
+| `.next/` | Next.js | Build output, generated route types |
+| `next-env.d.ts` | Next.js | Ambient type declarations |
+
+<Callout title="There is no postinstall script">
+  Older Fumadocs templates ran the `fumadocs-mdx` CLI on `postinstall` to generate `.source`. This
+  project does not. Generation happens inside `createMDX()` when Next.js starts, which means
+  `.source` will not exist until you have run `npm run dev` or `npm run build` at least once. The
+  CLI still ships in `node_modules/fumadocs-mdx/bin.js`, but nothing here invokes it.
+</Callout>
+
+## Verifying the install
+
+```bash
+npm run lint         # ESLint, flat config
+npm run types:check  # next typegen, then tsc --noEmit
+npm run build        # full production build
+```
+
+`types:check` runs `next typegen` first on purpose. The application uses Next 16's generated global
+types — `PageProps<'/docs/[[...slug]]'>`, `LayoutProps<'/'>`, `RouteContext<'/og/docs/[...slug]'>` —
+which only exist after typegen has written them into `.next/types`. Running bare `tsc --noEmit`
+fails with "Cannot find name 'PageProps'".
+
+## Next
+
+<Cards>
+  <Card
+    title="Project Structure"
+    description="What every file in the repository is for."
+    href="/docs/getting-started/project-structure"
+  />
+  <Card
+    title="Daily Workflow"
+    description="Scripts, checks, and commit conventions."
+    href="/docs/getting-started/workflow"
+  />
+</Cards>

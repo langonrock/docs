@@ -1,0 +1,128 @@
+---
+title: MDX Basics
+description: Create a page, understand how its URL is derived, and write its body.
+icon: FileText
+---
+
+## Creating a page
+
+Add an `.mdx` file anywhere under `content/docs/`. It needs frontmatter with at least a `title`:
+
+```mdx title="content/docs/guides/deploy.mdx"
+---
+title: Deploying
+description: How to ship this thing.
+---
+
+Body starts here.
+```
+
+That is the whole process. No registration, no import, no config change — the file watcher picks it
+up and the page exists at `/docs/guides/deploy`.
+
+## How URLs are derived
+
+The URL is the file path relative to `content/docs/`, with the extension dropped, prefixed by
+`/docs`:
+
+| File | URL |
+| --- | --- |
+| `content/docs/index.mdx` | `/docs` |
+| `content/docs/writing/mdx-basics.mdx` | `/docs/writing/mdx-basics` |
+| `content/docs/guides/index.mdx` | `/docs/guides` |
+| `content/docs/guides/deploy.mdx` | `/docs/guides/deploy` |
+
+`index.mdx` maps to its folder's root. The `/docs` prefix comes from `docsRoute` in
+`src/lib/shared.ts` — change it there and both the pages and the Markdown proxy follow.
+
+## Markdown
+
+Standard [GitHub Flavored Markdown](https://github.github.com/gfm/): headings, lists, tables, task
+lists, strikethrough, footnotes, autolinks.
+
+Headings from `##` down are collected into the table of contents on the right and get anchor links
+automatically. `#` is reserved — the page title from frontmatter renders as the `h1`, so starting a
+body with `#` produces two competing top-level headings.
+
+## Code blocks
+
+Fenced code blocks are highlighted at build time by [Shiki](https://shiki.style). Set the language
+after the opening fence:
+
+````mdx
+```ts
+const greeting: string = 'Hello';
+```
+````
+
+The code block component accepts a few attributes on the meta line:
+
+````mdx
+```ts title="src/lib/greeting.ts"
+export const greeting = 'Hello';
+```
+````
+
+| Attribute | Effect |
+| --- | --- |
+| `title="..."` | Filename header above the block |
+| `allowCopy={false}` | Hides the copy button (shown by default) |
+| `icon="..."` | Icon in the header, as raw SVG HTML |
+| `keepBackground` | Keeps Shiki's own background instead of the theme's |
+
+For tabbed code blocks, see [Components](/docs/writing/components).
+
+## JSX
+
+MDX is Markdown plus JSX. Components can be used inline:
+
+```mdx
+<Callout type="warn">This runs against production.</Callout>
+```
+
+Some components are available with no import at all; the rest must be imported at the top of the
+file. [Components](/docs/writing/components) explains which is which.
+
+Prose and JSX can be mixed freely, but a blank line is required between a Markdown paragraph and a
+JSX block, or the parser treats the whole thing as one node.
+
+## Linking between pages
+
+Absolute paths always work:
+
+```mdx
+See [Frontmatter](/docs/writing/frontmatter).
+```
+
+Relative file paths also work, and are resolved at render time:
+
+```mdx
+See [Frontmatter](./frontmatter.mdx).
+See [the overview](../index.mdx).
+```
+
+This works because the docs page passes `createRelativeLink(source, page)` as the `a` component:
+
+```tsx title="src/app/docs/[[...slug]]/page.tsx"
+<MDX
+  components={getMDXComponents({
+    a: createRelativeLink(source, page),
+  })}
+/>
+```
+
+Relative links have one real advantage: they point at files, so an editor can follow them and a
+rename shows up as a broken path locally rather than a 404 in production. Either style is fine —
+the pages in this section use absolute paths for readability.
+
+## Images
+
+Put images in a `public/` directory at the repository root (it does not exist yet — create it when
+you need one) and reference them from the site root:
+
+```mdx
+![Architecture diagram](/architecture.png)
+```
+
+The `img` element is replaced with a responsive, rounded image component. For click-to-zoom, import
+`ImageZoom` — see [Components](/docs/writing/components).
