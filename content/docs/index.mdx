@@ -24,11 +24,13 @@ questions:
 | Tokens billed for a 20-question session   |       116,357 | **64,355** |
 | Tool calls                                |            30 |     **17** |
 | Tokens for one concept read               |           594 |    **213** |
+| Retrieval, hit rate in the top 8          |           70% |    **75%** |
 
 The saving comes from the manifest carrying the link graph. The agent knows every id it needs
 _before_ it fetches anything, so one batched call covers them all, and it can ask for a single
 section instead of the whole concept. The manifest itself is not smaller than the Markdown it
-replaces. [Full numbers, including where the store loses](/docs/architecture/benchmarks).
+replaces, and retrieval gives nothing back: the store matches the raw files on ranking and passes
+them on hit rate. [Full numbers, including where the store still loses](/docs/architecture/benchmarks).
 
 ## Where to start
 

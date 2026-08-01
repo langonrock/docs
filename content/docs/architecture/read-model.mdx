@@ -109,8 +109,11 @@ the retrieval path. It is the largest single latency win and it is independent o
 Search returns manifest rows, never bodies, so the two-hop path holds. Narrow with `search`, then
 fetch only the chosen ids with `get`.
 
-The searchable text is the manifest row plus the concept body, minus the links column. Link targets
-are ids, and indexing them would make every concept match its neighbours' names.
+The searchable text is the concept's names — its id and its frontmatter `title` — the manifest
+row, and the body, minus the links column. Link targets are ids, and indexing them would make
+every concept match its neighbours' names. The title is indexed even though no manifest cell
+carries it: the compiler strips it from the document and stores it in the snapshot directory, so
+without the fold a carefully titled concept would retrieve worse than an untitled one.
 
 ### Scoring
 
@@ -118,23 +121,26 @@ Textbook BM25 with `k1 = 1.2` and `b = 0.75`, over a per-tenant index rebuilt in
 
 Tokenizing splits on every non-alphanumeric run, so `order_id` and `order id` produce the same
 tokens and a query written either way matches either form. The query goes through the same
-function, which is what keeps that true.
+function, which is what keeps that true. Accents fold away before splitting — `operações` and
+`operacoes` are the same token — and non-Latin scripts are kept rather than dropped.
 
-Manifest cells count **twice** against a word of prose. That weight exists because compiling the
-frontmatter away removed the id repetitions that `resource` and `sources` URLs used to contribute,
-so an id or summary match has to be told apart from an incidental body match.
+Two weights sit above the body text. Manifest cells count **twice** against a word of prose,
+because compiling the frontmatter away removed the id repetitions that `resource` and `sources`
+URLs used to contribute, so a summary match has to be told apart from an incidental body match.
+The concept's own names — id and title — count **four times**, because a query that names a
+concept should land on the concept itself, not on a neighbour that mentions it in passing.
 
-The value was swept over a 500-concept corpus, measuring hit rate at 8 for queries that name a
-concept:
+Both values were swept measuring hit rate at 8 for queries that name a concept. The cell weight
+was swept over the 500-concept catalogue; the name weight over three corpora at once:
 
-| Field weight | Hit rate                                          |
-| ------------ | ------------------------------------------------- |
-| 1            | 65%                                               |
-| 2            | 75%                                               |
-| 3+           | no further gain                                   |
-| 4+           | starts costing recall on descriptive queries      |
+| Name weight | reference MRR | handbook hit rate                |
+| ----------- | ------------: | -------------------------------- |
+| 2           |          0.39 | 95%                              |
+| 4           |          0.43 | 95%, MRR 0.83                    |
+| 6+          |     no change | no change outside noise          |
 
-Two is the smallest value that captures the gain, which is why it is the one shipped.
+Four is the smallest value that captures the gain. The recall cost that caps the cell weight at
+two does not apply here: boosting a concept's own name never hurt describing queries in the sweep.
 
 ### Cap the expansion
 
@@ -148,24 +154,30 @@ took `--k 3` from 85% of the manifest down to 31%.
 
 ### The index is not persisted
 
-Measured build times: 2.6 ms for a real bundle, 55 ms at 2,000 concepts, 274 ms at 10,000.
+Measured build times: 22 ms at 500 concepts, 193 ms at 5,000, 674 ms at 20,000. The build streams
+every body off a single read of the snapshot's blob region and packs postings into typed arrays,
+which is what keeps a 20,000-concept tenant under a gigabyte of process memory.
 
-The break point for the manifest is around 2,000 concepts, so persisting the index would save
-roughly 50 ms once per snapshot in exchange for a serialization format, invalidation logic, and its
-own collector. It is built in memory and cached by snapshot digest instead, which makes a rebuilt
-tenant get a fresh index with no invalidation code to get wrong.
+Persisting that would buy a few hundred milliseconds once per snapshot in exchange for a
+serialization format, invalidation logic, and its own collector. It is built in memory and cached
+by snapshot digest instead, which makes a rebuilt tenant get a fresh index with no invalidation
+code to get wrong — and `serve` rebuilds it right after each sync, so the first search after a
+save does not pay it either.
 
-Query time is 0.4 ms at 2,000 concepts. There was nothing to buy.
+Query time is 1.83 ms at 20,000 concepts. There was nothing to buy.
 
 ## Open questions
 
 - Whether to keep OKF as the literal on-disk source, or accept any Markdown and treat OKF
   conformance as an export target.
-- Whether full BM25F is worth it. The flat field weight above is the cheap version of the same
-  idea, and it recovered the hit rate the compiler had cost. Per-field length normalization would
-  be the real upgrade if id and summary matches start losing to incidental body matches again.
+
+Whether per-field weighting was worth it is no longer open: names weigh four, other cells weigh
+two, and the sweep behind each number is recorded next to the constant. Two candidate upgrades
+were measured and rejected on the same harness — expanding the link graph inbound as well as
+outbound (no gain on any profile) and light plural stemming (a ten-point win on the catalogue paid
+for by a five-point loss on the recipes).
 
 <Callout title="DESIGN.md is behind the code here">
-  It still lists field weighting as undecided. The sweep settled it, and `FIELD_WEIGHT = 2` ships
-  with a test covering it.
+  It still lists field weighting as undecided. The sweeps settled it: `FIELD_WEIGHT = 2` and
+  `NAME_WEIGHT = 4` ship with tests covering them.
 </Callout>
