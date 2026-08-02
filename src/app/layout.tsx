@@ -4,6 +4,7 @@ import { GeistMono } from 'geist/font/mono';
 import { GeistSans } from 'geist/font/sans';
 import type { Metadata } from 'next';
 import { appName, siteDescription, siteTagline, siteUrl } from '@/lib/shared';
+import { WebMcp } from '@/components/web-mcp';
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
@@ -57,6 +58,7 @@ export default function Layout({ children }: LayoutProps<'/'>) {
           theme={{ defaultTheme: 'dark', forcedTheme: 'dark', enableSystem: false, hotKey: false }}
         >
           {children}
+          <WebMcp />
         </RootProvider>
       </body>
     </html>
