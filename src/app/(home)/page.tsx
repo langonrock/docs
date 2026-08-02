@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import localFont from 'next/font/local';
-import { appName, siteDescription, siteTagline } from '@/lib/shared';
+import { appName, siteDescription, siteLead, siteTagline } from '@/lib/shared';
 import { DarkGradientBg } from '@/components/ui/elegant-dark-pattern';
 import { Benchmarks } from './benchmarks';
 import { Cost } from './cost';
@@ -46,13 +46,7 @@ export default function HomePage() {
                 database for AI agents.
               </h1>
 
-              <p className="lr-prose lr-lead mt-7">
-                Your agent answers the same questions for 45% fewer tokens and thirteen fewer round
-                trips. Over a set of RFCs it saves 98%, and it finds the right concept at least as
-                often as reading the raw files. Instead of crawling your Markdown it reads a
-                compiled index and asks for the one section it needs. No embeddings to generate, no
-                vector database to run. One binary, local or over the network.
-              </p>
+              <p className="lr-prose lr-lead mt-7">{siteLead}</p>
 
               <div className="mt-12">
                 <Install />

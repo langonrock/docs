@@ -1,6 +1,7 @@
 import { ImageResponse } from 'next/og';
+import { ogFonts } from '@/lib/og-fonts';
 import { ogMark } from '@/lib/og-mark';
-import { appName, siteTagline } from '@/lib/shared';
+import { appName, siteLead, siteTagline } from '@/lib/shared';
 import { dump, manifestBytes } from './(home)/manifest';
 
 export const alt = `${appName}, ${siteTagline}`;
@@ -14,16 +15,21 @@ const INK = '#f0f2f4';
 const DIM = '#a9aeb7';
 const FAINT = '#7b828c';
 const COBALT = '#5497fb';
+const COBALT_GLOW = 'rgba(84, 151, 251, 0.45)';
 const ON_COBALT = '#060d1a';
 
 /**
  * Satori has no monospace font loaded, so the byte grid is laid out with fixed
  * width boxes rather than trusting the glyph advance. The bytes are the real
  * compiled manifest, the same ones the page renders.
+ *
+ * It also refuses a text node and a styled span as siblings, so the headline
+ * cannot flow the way the hero's does. Its two lines are split by hand, and the
+ * pixel words carry their own leading space as a margin.
  */
 export default async function OpenGraphImage() {
   const preview = dump(manifestBytes, 48);
-  const mark = await ogMark();
+  const [mark, fonts] = await Promise.all([ogMark(), ogFonts()]);
 
   return new ImageResponse(
     (
@@ -45,14 +51,36 @@ export default async function OpenGraphImage() {
           <span style={{ fontSize: 26, color: DIM }}>langonrock</span>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 26 }}>
-          <span style={{ fontSize: 58, color: INK, lineHeight: 1.12, letterSpacing: -1.8 }}>
-            {appName} is a faster, cheaper document database for AI agents.
-          </span>
-          <span style={{ fontSize: 24, color: DIM, lineHeight: 1.4 }}>
-            No embeddings, no vector database, no re-index after every edit. It compiles your
-            Markdown into one manifest, with no model in the retrieval path.
-          </span>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              fontSize: 54,
+              fontWeight: 500,
+              color: INK,
+              lineHeight: 1.12,
+              letterSpacing: -1.7,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'baseline' }}>
+              <span>{appName} is a</span>
+              <span
+                style={{
+                  marginLeft: 16,
+                  fontFamily: 'Geist Pixel',
+                  fontSize: 51,
+                  color: COBALT,
+                  letterSpacing: 0.5,
+                  textShadow: `0 0 24px ${COBALT_GLOW}`,
+                }}
+              >
+                faster, cheaper
+              </span>
+            </div>
+            <span>document database for AI agents.</span>
+          </div>
+          <span style={{ fontSize: 21, color: DIM, lineHeight: 1.5 }}>{siteLead}</span>
         </div>
 
         <div
@@ -89,6 +117,6 @@ export default async function OpenGraphImage() {
         </div>
       </div>
     ),
-    size,
+    { ...size, fonts },
   );
 }
