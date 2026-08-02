@@ -1,0 +1,34 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/v1/server-card.schema.json",
+  "name": "com.langonrock/langonrock",
+  "title": "Lang on Rock",
+  "version": "0.2.0",
+  "description": "Four read tools over a compiled OKF knowledge store, served over stdio.",
+  "websiteUrl": "https://langonrock.com",
+  "repository": {
+    "source": "github",
+    "url": "https://github.com/langonrock/langonrock"
+  },
+  "serverInfo": {
+    "name": "com.langonrock/langonrock",
+    "title": "Lang on Rock",
+    "version": "0.2.0"
+  },
+  "transport": {
+    "type": "stdio",
+    "command": "langonrock",
+    "args": ["mcp", "okf:///abs/path/to/data?tenant=acme"],
+    "documentationUrl": "https://langonrock.com/docs/guides/mcp"
+  },
+  "capabilities": {
+    "tools": {},
+    "resources": {}
+  },
+  "_meta": {
+    "com.langonrock/deployment": {
+      "note": "This server is run locally by the operator against their own store; langonrock.com hosts the documentation, not an MCP endpoint. It has no remote transport, so the `remotes` array is absent rather than empty.",
+      "connectionSchemes": ["okf", "okf+unix", "okf+http", "okf+https"],
+      "installation": "https://langonrock.com/docs/getting-started/installation"
+    }
+  }
+}
