@@ -9,12 +9,12 @@ export function GetStarted() {
     <section className="lr-rule-top">
       <div className="lr-container py-24">
         <div className="lr-head">
-          <h2 className="lr-h2">One binary, no database</h2>
+          <h2 className="lr-h2">One binary, server optional</h2>
           <div>
             <p className="lr-prose">
               One binary for macOS and Linux on x64 and arm64, a data directory, and an MIT licence.
-              No server to run, no schema to migrate, and nothing that has to stay running between
-              reads. It is written for Bun 1.3, so reading it from source is{' '}
+              No schema to migrate and nothing that has to stay running between reads. It is written
+              for Bun 1.3, so reading it from source is{' '}
               <code className="lr-mono">bun install</code> and a{' '}
               <code className="lr-mono">--help</code>.
             </p>
