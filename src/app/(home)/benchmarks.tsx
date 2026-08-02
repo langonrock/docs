@@ -70,7 +70,7 @@ const benchmarks: Benchmark[] = [
   {
     id: 'corpus',
     label: 'By corpus',
-    note: 'Best strategy per corpus. Structure pays — links, headings, titles — and where prose has none, find fetches a located window instead of the chapter. That is what moved the novels from the 2% they sat at.',
+    note: 'Best strategy per corpus, at the grain shown. Structure pays — links, headings, titles — and where prose has none, find fetches a located window instead of the chapter. That is what moved the novels from the 2% they sat at.',
     chart: (
       <BarChart
         title="Tokens saved against the navigator"
@@ -81,7 +81,7 @@ const benchmarks: Benchmark[] = [
           { label: 'spec, 28 RFCs', value: 98, display: '98%', accent: true },
           { label: 'scripture, by book', value: 97, display: '97%', accent: true },
           { label: 'handbook, 1,281 recipes', value: 85, display: '85%', accent: true },
-          { label: 'book, 4 novels', value: 70, display: '70%', accent: true },
+          { label: 'book, by chapter', value: 70, display: '70%', accent: true },
           { label: 'reference, catalogue', value: 52, display: '52%', accent: true },
         ]}
       />
