@@ -1,5 +1,4 @@
 import Link from 'next/link';
-import { DotPattern } from '@/components/ui/dot-pattern';
 
 const heading = 'Three ways to read it';
 const description =
@@ -45,13 +44,6 @@ const strategies = [
 export function Strategies() {
   return (
     <section className="lr-rule-top relative overflow-hidden">
-      <DotPattern
-        width={22}
-        height={22}
-        cr={1}
-        className="fill-[color:var(--lr-mark)] opacity-[0.08] [mask-image:radial-gradient(560px_circle_at_70%_40%,white,transparent)]"
-      />
-
       <div className="lr-container relative py-24">
         <div className="lr-head">
           <h2 className="lr-h2">{heading}</h2>
