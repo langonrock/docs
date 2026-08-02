@@ -109,9 +109,9 @@ is meant to prevent.
 }
 ```
 
-A client never has to reimplement the naming rule. A file with no `id` is not a concept. It has no
-frontmatter, so the compiler skips it. That is how a cloned repository's `README.md` shows up as
-what it is instead of vanishing without explanation.
+A client never has to reimplement the naming rule. A file with no `id` is not a concept, which now
+means only the navigation files, `index.md` and `log.md`: everything else compiles, frontmatter or
+not, and the listing names it exactly as the manifest will.
 
 <Callout type="warn" title="Creating a file can rename a concept nobody touched">
   Concept ids are the shortest unambiguous form of their path, so adding `staging/orders.md` turns
@@ -122,7 +122,7 @@ what it is instead of vanishing without explanation.
 ## Diagnostics are the lint
 
 `sync` returns what the compiler noticed on the way. A missing `type`, a link resolving to nothing,
-a file skipped for having no frontmatter. That is what an editor should put in front of whoever is
+a file compiled without frontmatter. That is what an editor should put in front of whoever is
 writing.
 
 ```ts
@@ -131,13 +131,14 @@ const { snapshot, concepts, bundles, diagnostics } = await knowledge.sync();
 
 Each diagnostic carries a level, the file path, and a message.
 
-| Message                                          | What it means                                       |
-| ------------------------------------------------ | --------------------------------------------------- |
-| `skipped: no frontmatter, so not an OKF concept` | The file is not a concept and produced no row        |
-| `missing required frontmatter field "type"`      | The `kind` cell will be `-`                          |
-| `unresolved link "…"`                            | A Markdown link points at no concept in the tenant   |
-| `invalid YAML frontmatter: …`                    | The block did not parse, so every field was lost     |
-| `frontmatter is not a mapping`                   | It parsed to a list or a scalar                      |
+| Message                                                          | What it means                                      |
+| ---------------------------------------------------------------- | -------------------------------------------------- |
+| `no frontmatter, compiled as plain markdown, not an OKF concept` | The file compiled with derived metadata            |
+| `missing required frontmatter field "type"`                      | The `kind` cell will be `-`                        |
+| `unresolved link "…"`                                            | A Markdown link points at no concept in the tenant |
+| `stale_after is not a date (YYYY-MM-DD), ignored`                | The concept will never demote to `stale`           |
+| `invalid YAML frontmatter: …`                                    | The block did not parse, so every field was lost   |
+| `frontmatter is not a mapping`                                   | It parsed to a list or a scalar                    |
 
 Every one of these is `warn`. The `error` level exists in the type and nothing emits it today, so
 a compile always produces a snapshot. Use `--strict` on the CLI to make any diagnostic an exit

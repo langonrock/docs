@@ -42,7 +42,7 @@ that same model.
 | OKF `read_concept`, the whole file   |     594 |
 | `get(id)`, frontmatter compiled away |     445 |
 | `get(id, { section: "schema" })`     | **213** |
-| One search result, eight rows        |     719 |
+| One search result, eight rows        |     731 |
 
 | What can go in the prompt |  Tokens |
 | ------------------------- | ------: |
@@ -82,7 +82,7 @@ tenant](/docs/guides/large-tenants) usable at all.
 | Read the manifest, warm      | &lt;0.01 | &lt;0.01 | &lt;0.01 |
 | Batched `get` of 3 sections  |  0.08 |  0.11 |   0.09 |
 | Build the BM25 index         |    22 |   193 |    674 |
-| BM25 query                   |  0.10 |  0.55 |   1.83 |
+| BM25 query, with `pos`       |  0.29 |  0.94 |   2.13 |
 
 `get` is flat. Batching a fetch costs the same on a tenant of twenty thousand concepts as on one of
 five hundred.
@@ -130,10 +130,10 @@ against the raw-file baseline.
 | `spec`             | 28 IETF RFCs                         |    98% | **100%** vs 95%  |
 | `scripture-coarse` | The Bible, one concept per book      |    97% | 90% vs 90%       |
 | `book-coarse`      | Four novels, one concept per novel   |    89% | 100% vs 100%     |
-| `handbook`         | 1,281 of Mrs Beeton's recipes        |    85% | **100%** vs 90%  |
-| `book`             | Four novels, one concept per chapter |    70% | 80% vs 80%       |
+| `handbook`         | 1,281 of Mrs Beeton's recipes        |    84% | **100%** vs 90%  |
+| `book`             | Four novels, one concept per chapter |    69% | 80% vs 80%       |
 | `scripture`        | The Bible, one concept per chapter   |    66% | 90% vs 90%       |
-| `reference`        | The warehouse catalogue above        |    52% | **75%** vs 70%   |
+| `reference`        | The warehouse catalogue above        |    51% | **75%** vs 70%   |
 
 The store meets or beats the raw files on every profile except the novels' top position (MRR 0.69
 against 0.72). The savings on the prose profiles come from `find`, covered next: before it, prose
@@ -151,22 +151,28 @@ the change and on the commit after, same machine, so every claim below is a meas
 
 Best strategy on each side, against the OKF navigator over the raw files:
 
-| Profile            |    OKF raw | Before this change | After  | Saving before | Saving after |
-| ------------------ | ---------: | -----------------: | -----------: | ------: | ------: |
-| `spec`             |    756,168 |             13,995 |       13,995 |     98% |     98% |
-| `scripture-coarse` |  1,278,420 |             39,395 |       39,395 |     97% |     97% |
-| `book-coarse`      |    338,296 |            122,236 |   **37,336** |     64% | **89%** |
-| `handbook`         |    125,798 |             19,200 |       19,200 |     85% |     85% |
-| `book`             |    130,101 |            127,077 |   **39,274** |      2% | **70%** |
-| `scripture`        |    159,174 |             75,186 |   **53,361** |     53% | **66%** |
-| `reference`        |    116,357 |             56,423 |       56,423 |     52% |     52% |
+| Profile            |    OKF raw | Before this change |       Today | Saving before | Saving today |
+| ------------------ | ---------: | -----------------: | ----------: | ------------: | -----------: |
+| `spec`             |    756,168 |             13,995 |      13,995 |           98% |          98% |
+| `scripture-coarse` |  1,278,420 |             39,395 |      39,395 |           97% |          97% |
+| `book-coarse`      |    338,296 |            122,236 |  **37,736** |           64% |      **89%** |
+| `handbook`         |    125,798 |             19,200 |      19,551 |           85% |          84% |
+| `book`             |    130,101 |            127,077 |  **39,862** |            2% |      **69%** |
+| `scripture`        |    159,174 |             75,186 |  **53,801** |           53% |      **66%** |
+| `reference`        |    116,357 |             56,423 |      56,928 |           52% |          51% |
 
-Only the profiles whose questions are literal passages move, because `find` adds a retrieval unit
-rather than changing compilation or ranking. Where the questions are natural language — the
-catalogue, the recipes, the RFCs — the sessions are byte-for-byte identical to before, which is the
-no-regression half of the measurement. `scripture-coarse` keeps its old best honestly: a 66-row
+Only the profiles whose questions are literal passages move on `find`, because it adds a retrieval
+unit rather than changing compilation or ranking. Where the questions are natural language — the
+catalogue, the recipes, the RFCs — `find` left the sessions byte-for-byte identical, which was the
+no-regression half of that measurement. `scripture-coarse` keeps its old best honestly: a 66-row
 manifest amortised over the session still beats paying a search per question, so `find` wins where
 the manifest is large or the documents are, not everywhere.
+
+The `Today` column is the shipped tree rather than the commit `find` landed on, so it also carries
+the `pos` column described below. That is the one percent separating `39,274` then from `39,862`
+now, and it is why `handbook` and `reference` each gave back a point: `pos` rides in every search
+result, so the profiles that read through search pay for it whether or not they use it. Both
+manifest-strategy profiles are unchanged to the token.
 
 Per read, on the corpora where locating applies: a novel chapter costs 3,244 tokens whole and
 **513** as a `find` window, frame and match offsets included; a Bible chapter costs 841 whole and
@@ -176,7 +182,7 @@ Per read, on the corpora where locating applies: a novel chapter costs 3,244 tok
 
 `find` spends exactly what search-first spends: two calls per question, 40 per session. Where it
 became the cheapest strategy the store now trades more calls for fewer tokens — `book` moves from
-21 calls at 127,077 tokens to 40 at 39,274 — and the manifest strategy remains available at its old
+21 calls at 127,077 tokens to 40 at 39,862 — and the manifest strategy remains available at its old
 cost for a caller that prizes turns over tokens. Nothing else moved: 16 to 21 calls for the
 manifest strategy, 35 to 40 for search-first, before and after.
 
@@ -189,9 +195,11 @@ whole thing.
 
 ### Speed
 
-Every existing latency is within run-to-run noise of its before value: a warm query moves by
-thousandths of a millisecond in both directions, and a batched `get` stays flat. The new operation
-costs the same order as the old ones — a `find` is one `indexOf` sweep over the decompressed body:
+Every latency that existed before `find` stayed within run-to-run noise of its before value: a warm
+query moved by thousandths of a millisecond in both directions, and a batched `get` stayed flat.
+The new operation costs the same order as the old ones — a `find` is one `indexOf` sweep over the
+decompressed body. (Search itself did move later, when `pos` began scanning the top hits' bodies;
+that cost is stated in the next section rather than folded in here.)
 
 | Operation, median            | Embedded     | Over a unix socket |
 | ---------------------------- | ------------ | -----------------: |
@@ -213,7 +221,50 @@ the largest single concept of each corpus:
 | `book`, one chapter    |      11,406 |           **3,760** |
 
 The four tool definitions grew with the three new parameters: 833 tokens per session before, 1,062
-after. One window replacing one chapter repays the difference about twelve times over.
+after. One window replacing one chapter repays the difference about twelve times over. The `pos`
+column's explanation, the per-tenant strategy advice and the `stale` status later put them at
+1,122; the same window-for-chapter trade repays those sixty tokens about sixty times over.
+
+## Locating without a quote: the pos column
+
+`find` needs a literal phrase. Search now points instead: after BM25 ranks, the store scans the
+top hits' bodies for the window where the query's words cluster densest, and every direct hit ends
+in a `pos` cell — the offset to hand straight back as `get(id, {offset: pos, limit: 2000})`.
+Ranking is untouched, and the before/after runs agree on every hit rate and MRR to the last digit
+across all eight profiles.
+
+The questions that needed this are the described ones — summaries rather than quotes, where `find`
+has nothing to anchor on. The same twenty questions per profile, asked descriptively, answered by
+capped document reads against `pos` windows:
+
+| Profile            | Capped reads | `pos` windows | Window held the passage |
+| ------------------ | -----------: | ------------: | ----------------------: |
+| `scripture-coarse` |      220,967 |    **47,541** |                 20 / 20 |
+| `spec`             |      155,996 |    **58,416** |                   5 / 7 |
+| `book`             |      180,625 |   **125,911** |                  8 / 20 |
+| `scripture`        |       76,173 |    **56,780** |                 19 / 20 |
+| `book-coarse`      |   **33,115** |        38,336 |                 20 / 20 |
+
+The last column is checked rather than assumed: a hit means the wanted concept's window really
+contained the passage the question pointed at, and that held in 113 of 135 locatable cases across
+the eight profiles. The `book` misses belong to ranking, not the window — described queries reach
+the top eight only 40 percent of the time on headingless prose, and every question ranking did
+place, the window answered. `book-coarse` is the honest loss from the other side: four documents
+amortise their capped reads across twenty questions at the cache rate, and twenty fresh windows
+cannot.
+
+What the column costs: six to sixteen tokens per search result, about one percent of a session,
+and the body scan moves a warm search from the old 0.02–0.15 ms range to 0.3–0.9 ms on ordinary
+corpora — up to 14 ms when the top hits are whole novels, still two orders of magnitude below the
+model turn it feeds.
+
+### The experiment that lost
+
+The same round A/B-tested a minimal plural fold in the tokenizer — `orders` meeting `order` in the
+index. It lifted the identifier-heavy `reference` corpus by five points of hit rate and 0.12 of
+MRR, and paid for it with rank quality across every prose corpus: `handbook` lost five points and
+0.06 of MRR, `scripture-coarse` 0.08 of MRR. The fold was reverted, and the losing numbers are
+published next to the winning ones because that is the house rule.
 
 ## How much to trust these numbers
 

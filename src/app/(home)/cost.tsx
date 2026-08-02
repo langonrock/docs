@@ -48,10 +48,9 @@ export function Cost() {
               A session that bills 116,357 tokens against that baseline bills 64,355 here, over 17
               tool calls instead of 30. Thirteen fewer round trips is thirteen fewer inference turns
               you wait through, so the answer lands sooner as well as cheaper. That is the synthetic
-              catalogue; over real corpora the same harness saves between 66% on the chapter-grain
-              Bible and 98% on RFCs. It used to bottom out at 2% on the novels — locating a passage
-              with <code className="lr-mono">find</code> instead of fetching the chapter moved them
-              to 70%.
+              catalogue; over real corpora the same harness saves between 51% on the warehouse
+              catalogue and 98% on RFCs. It used to bottom out at 2% on the novels — locating a
+              passage instead of fetching the chapter moved them to 69%.
             </p>
 
             <p className="lr-prose mt-5">

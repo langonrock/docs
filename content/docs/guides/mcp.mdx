@@ -27,12 +27,12 @@ claude mcp add langonrock -- langonrock mcp "okf+unix:///tmp/okf.sock?tenant=acm
 
 ## The four tools
 
-| Tool       | Input                                          | Output                                    |
-| ---------- | ---------------------------------------------- | ----------------------------------------- |
-| `manifest` | `bundle?`                                      | The manifest as TSV                       |
-| `search`   | `query`, `k?`, `bundle?`                       | Ranked manifest rows, never bodies        |
-| `get`      | `ids[]`, `section?`, `offset?`, `limit?`, `find?` | Framed slices, one `@@ id` block each  |
-| `snapshot` | none                                           | The current digest                        |
+| Tool       | Input                                          | Output                                            |
+| ---------- | ---------------------------------------------- | ------------------------------------------------- |
+| `manifest` | `bundle?`                                      | The manifest as TSV                               |
+| `search`   | `query`, `k?`, `bundle?`                       | Ranked manifest rows plus a `pos` cell, never bodies |
+| `get`      | `ids[]`, `section?`, `offset?`, `limit?`, `find?` | Framed slices, one `@@ id` block each          |
+| `snapshot` | none                                           | The current digest                                |
 
 `k` is capped at 50 by the schema. `get` requires at least one id, and reports anything it could
 not find as a trailing `@@ missing` block rather than failing the call.
@@ -43,9 +43,24 @@ truly needs more at once. `find` takes a literal case-insensitive phrase and ans
 around the first occurrence plus the offset of every one — the cheap way to answer "where does the
 text say this" without paying for the document.
 
+When there is no phrase to quote, `search` itself points the way: every direct hit ends in a `pos`
+cell, the character offset where the query's words cluster densest in that concept's body, `-` when
+they only match its manifest row. The follow-up is `get` with `{offset: pos, limit: 2000}` — a
+located passage instead of a capped document, for descriptive questions `find` cannot anchor.
+
 Four verbs, and no more, because every tool definition costs tokens in the client's system prompt:
-the four definitions measure 1,062, paid every session whether or not any of them is called.
+the four definitions measure 1,122, paid every session whether or not any of them is called.
 `manifest` and `search` narrow, `get` fetches, `snapshot` invalidates. Nothing else earned a place.
+
+## The manifest description carries the tenant's own advice
+
+At startup the server measures the manifest and appends one sentence to the `manifest` tool's
+description: prefer `search` when the manifest costs more than about twenty times one search
+result, read it whole when it does not. The crossover comes from the benchmarks, the arithmetic
+comes from the manifest itself, and the sentence is deterministic — same snapshot, same advice.
+The advice is read once per client session, so a tenant that changes shape under a running server
+keeps the old sentence until the next session; corpus shape moves slowly enough for that to be
+fine.
 
 ## The manifest is exposed twice
 
@@ -70,17 +85,19 @@ A description that only describes gets under-triggered. That is a real effect an
 tokens in the schema.
 
 The `manifest` description also explains the `status` column, so an agent knows that a cell other
-than `-` means the concept is deprecated or draft, and that it should say so if it uses one anyway.
+than `-` means the concept is deprecated, draft, or stale — the reader demotes a concept past its
+`stale_after` date at read time — and that it should say so if it uses one anyway.
 
 ## The session an agent should have
 
 1. Read the manifest, ideally from the cached prefix rather than by calling the tool.
 2. Pick ids from the rows it already holds.
 3. Call `get` once with all of them — with `section` when it only needs the schema, with `find`
-   when it only needs a passage.
+   when it only needs a quoted passage, with `offset: pos` from a search hit when the passage was
+   described rather than quoted.
 
 Two round trips, and the second one is batched. On a large tenant, replace step 1 with `search`,
-or with `manifest` narrowed to a bundle.
+or with `manifest` narrowed to a bundle — the manifest tool's own description says which.
 
 ## Writing is not an MCP tool
 

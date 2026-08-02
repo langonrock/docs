@@ -23,20 +23,21 @@ const strategies = [
     title: 'Rank first, never read the manifest',
     body:
       'Ask for the eight rows that matter and fetch what ranked. One extra call per question buys ' +
-      'the tokens back: a 20,000-concept tenant answers the same twenty questions for 60,254 ' +
+      'the tokens back: a 20,000-concept tenant answers the same twenty questions for 60,755 ' +
       'tokens against the navigator’s 2.69M. The right call once the manifest stops fitting in ' +
       'the prompt.',
-    figures: '36 calls · 60,254 tokens · 20,000 concepts',
+    figures: '36 calls · 60,755 tokens · 20,000 concepts',
   },
   {
-    verbs: 'search → get(find)',
+    verbs: 'search → get(pos | find)',
     title: 'Locate the passage, skip the document',
     body:
-      'When the question is where the text says something, get takes a literal phrase and returns ' +
-      'a window around the match plus every occurrence’s offset — about 500 tokens whatever the ' +
-      'document size. Four novels answer the same twenty questions for 39,274 tokens against ' +
+      'When the question is where the text says something, get takes a literal phrase — and when ' +
+      'there is no phrase to quote, every search hit carries pos, the offset of the passage ' +
+      'densest in the query’s words. Either way the read is a window of about 500 tokens whatever ' +
+      'the document size. Four novels answer the same twenty questions for 39,862 tokens against ' +
       '127,077 by whole chapters. The corpus this store used to lose.',
-    figures: '40 calls · 39,274 tokens · 4 novels',
+    figures: '40 calls · 39,862 tokens · 4 novels',
   },
 ];
 
@@ -75,7 +76,9 @@ export function Strategies() {
         <p className="lr-prose lr-note mt-10">
           The crossover is the ratio between the manifest’s size and one search result. Over a
           twenty-question session it lands near twenty: the RFC corpus sits at 2× and reads cheaper
-          through the manifest, Mrs Beeton’s recipes sit at 102× and read cheaper through search.{' '}
+          through the manifest, Mrs Beeton’s recipes sit at 102× and read cheaper through search.
+          The store now says so itself — the MCP server measures the manifest at startup and writes
+          the verdict into the tool description.{' '}
           <Link href="/docs/guides/large-tenants" className="lr-link">
             Narrowing on a large tenant
           </Link>

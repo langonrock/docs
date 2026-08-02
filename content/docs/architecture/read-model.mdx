@@ -164,12 +164,14 @@ by snapshot digest instead, which makes a rebuilt tenant get a fresh index with 
 code to get wrong — and `serve` rebuilds it right after each sync, so the first search after a
 save does not pay it either.
 
-Query time is 1.83 ms at 20,000 concepts. There was nothing to buy.
+Query time is 2.13 ms at 20,000 concepts, most of it the `pos` scan over the top hits' bodies
+rather than the ranking. There was nothing to buy.
 
 ## Open questions
 
-- Whether to keep OKF as the literal on-disk source, or accept any Markdown and treat OKF
-  conformance as an export target.
+- ~~Whether to keep OKF as the literal on-disk source, or accept any Markdown and treat OKF
+  conformance as an export target.~~ Settled: any Markdown compiles, and conformance is what
+  `--strict` enforces.
 
 Whether per-field weighting was worth it is no longer open: names weigh four, other cells weigh
 two, and the sweep behind each number is recorded next to the constant. Two candidate upgrades

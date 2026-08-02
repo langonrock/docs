@@ -14,7 +14,7 @@ const features = [
     icon: FolderSymlink,
     title: 'Nothing you already have moves',
     description:
-      'langonrock compiles your OKF directory, it does not take it over. The Markdown stays the source of truth and stays conformant, so okflint and the visualizer keep working on the same folder.',
+      'langonrock compiles your Markdown, it does not take it over. Frontmatter is optional and OKF conformance is what --strict enforces, so okflint and the visualizer keep working on the same folder.',
   },
   {
     icon: Snowflake,
@@ -26,7 +26,7 @@ const features = [
     icon: Scissors,
     title: 'Pay for the section, not the document',
     description:
-      'Ask for the schema of a table by its own Markdown heading, or hand find a phrase and get the window around it. A catalogue read drops from 594 tokens to 213; a novel chapter from 3,244 to 513.',
+      'Ask for the schema of a table by its own Markdown heading, hand find a phrase, or follow a search hit’s pos offset to the densest passage. A catalogue read drops from 594 tokens to 213; a novel chapter from 3,244 to 513.',
   },
   {
     icon: Layers,

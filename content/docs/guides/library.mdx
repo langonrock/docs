@@ -84,7 +84,7 @@ interface SourceEntry {
   path: string;
   bytes: number;
   hash: string;
-  id?: string; // absent when the file is not a concept
+  id?: string; // absent only for navigation files like index.md
 }
 
 interface SyncResult {

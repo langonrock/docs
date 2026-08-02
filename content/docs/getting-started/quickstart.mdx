@@ -22,8 +22,11 @@ sources/acme/
     runbooks/deploy.md
 ```
 
-`sales` and `ops` are bundles. `orders`, `customers` and `deploy` are concepts. A file with no
-frontmatter is not a concept, so a cloned repository's `README.md` is skipped rather than indexed.
+`sales` and `ops` are bundles. `orders`, `customers` and `deploy` are concepts. Frontmatter is
+optional: a plain Markdown file still compiles, with its id from the path, its summary from the
+first sentence, and its title from the first heading — it just earns a conformance warning, which
+`--strict` turns into a failing exit. Only navigation files, `index.md` and `log.md`, never become
+concepts.
 
 </Step>
 <Step>
@@ -61,7 +64,9 @@ orders	sales	bigquery_table	-	order_id	One row per completed customer order.	cus
 
 Everything an agent needs to plan its reads is in those rows. The `links` column carries the graph,
 so it knows every id it will need before it fetches anything. A `status` cell other than `-` is the
-concept telling you it is not current.
+concept telling you it is not current — `deprecated`, `draft`, or `stale` once its `stale_after`
+date passes, which the reader computes at read time so the snapshot itself never depends on the
+clock.
 
 </Step>
 <Step>
@@ -122,7 +127,10 @@ langonrock query "okf:///abs/path/to/data?tenant=acme" search orders
 
 Search returns manifest rows, never bodies, so the two-hop path holds. Narrow with `search`, then
 fetch the ids you chose with `get`. Results include concepts one link away from the top matches,
-which is usually where the join partner or the parent dataset lives.
+which is usually where the join partner or the parent dataset lives. Each direct hit also ends in a
+`pos` column — the offset where your query's words cluster densest in the body — so the second hop
+can be `get` with `--offset <pos> --limit 2000` instead of the whole document, even when there is
+no literal phrase for `--find` to anchor on.
 
 <Callout title="Progress goes to stderr">
   Stdout stays clean for piping, and Bun paints anything written with `console.error` red. Those

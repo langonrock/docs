@@ -70,10 +70,11 @@ Median milliseconds, on one machine:
 | Read the manifest, warm      | &lt;0.01 | &lt;0.01 | &lt;0.01 |
 | Batched `get` of 3 sections  |  0.08 |  0.11 |   0.09 |
 | Build the BM25 index         |    22 |   193 |    674 |
-| BM25 query                   |  0.10 |  0.55 |   1.83 |
+| BM25 query, with `pos`       |  0.29 |  0.94 |   2.13 |
 
-`get` is flat. Batching a fetch costs the same on a tenant of twenty thousand concepts as on one of
-five hundred.
+The query row is roughly three times what it was before search began computing `pos`, because
+ranking is now followed by a scan of the top hits' bodies. `get` is flat. Batching a fetch costs
+the same on a tenant of twenty thousand concepts as on one of five hundred.
 
 None of this is where the time goes, though. One saved model round trip is worth about a second,
 four orders of magnitude more than any row above. Optimize round trips, not milliseconds.

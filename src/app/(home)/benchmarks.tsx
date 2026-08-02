@@ -80,9 +80,9 @@ const benchmarks: Benchmark[] = [
         rows={[
           { label: 'spec, 28 RFCs', value: 98, display: '98%', accent: true },
           { label: 'scripture, by book', value: 97, display: '97%', accent: true },
-          { label: 'handbook, 1,281 recipes', value: 85, display: '85%', accent: true },
-          { label: 'book, by chapter', value: 70, display: '70%', accent: true },
-          { label: 'reference, catalogue', value: 52, display: '52%', accent: true },
+          { label: 'handbook, 1,281 recipes', value: 84, display: '84%', accent: true },
+          { label: 'book, by chapter', value: 69, display: '69%', accent: true },
+          { label: 'reference, catalogue', value: 51, display: '51%', accent: true },
         ]}
       />
     ),

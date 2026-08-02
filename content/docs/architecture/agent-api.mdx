@@ -10,12 +10,12 @@ Few verbs, all deterministic.
 manifest()                            -> TSV, usually already in the cached prefix
 get(ids[], {section, offset, limit, find}?) -> slices, one round trip for N concepts
 snapshot()                            -> digest, to check whether the manifest is stale
-search(query, k)                      -> BM25 plus a capped one-hop expansion
+search(query, k)                      -> ranked rows, each direct hit carrying pos
 ```
 
 ## Tool count is a token cost
 
-The four definitions measure 1,062 tokens in the client's system prompt, paid on every single turn
+The four definitions measure 1,122 tokens in the client's system prompt, paid on every single turn
 whether or not any of them is called, and the bill scales with the count: fifteen tools would run
 several thousand.
 
@@ -85,15 +85,18 @@ Manifest rows. Never bodies.
 
 That keeps the two-hop path intact: narrow with `search`, then fetch only the chosen ids with
 `get`. A search that returned bodies would be a single hop that costs more than the manifest it was
-meant to avoid reading. Pinpointing inside a hit is `get`'s job too: pass `find` and the second hop
-returns the passage instead of the document.
+meant to avoid reading. What search does add is a pointer: each direct hit ends in a `pos` cell,
+the offset where the query's words cluster densest in the body, six to sixteen tokens per result.
+The second hop becomes `get` with `{offset: pos, limit: 2000}` — or `find` with a literal phrase
+when there is one — and the passage arrives instead of the document.
 
 ## The shape of a good session
 
 1. The manifest is already in the prefix, cached.
 2. The agent picks ids from rows it holds.
 3. One `get` with every id — a `section` when only the schema is needed, a `find` when only a
-   passage is.
+   quoted passage is, an `offset: pos` from a search hit when the passage was described.
 
-On a large tenant, step 1 becomes `search` or `manifest(bundle)`. The count of round trips does not
-change.
+On a large tenant, step 1 becomes `search` or `manifest(bundle)` — and the manifest tool's own
+description says which, computed from this tenant's measured size. The count of round trips does
+not change.

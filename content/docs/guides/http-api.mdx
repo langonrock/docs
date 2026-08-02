@@ -49,7 +49,7 @@ when you only want to know whether anything moved.
 | `manifest` | `text/tab-separated-values`     | Raw TSV, comment lines then a header row      |
 | `snapshot` | `application/json`              | `{"snapshot": "…", "concepts": n}`           |
 | `get`      | `application/json`              | An object of slices keyed by id, missing ids absent |
-| `search`   | `text/tab-separated-values`     | Manifest rows, with `# query` and `# hits` comments |
+| `search`   | `text/tab-separated-values`     | Manifest rows plus a trailing `pos` column, with `# query` and `# hits` comments |
 
 `get` returns an object rather than an array, so a missing id is simply not a key. Nothing errors
 when one of a batch does not exist. Each value is a slice — `{"text", "start", "end", "total"}`,
@@ -70,8 +70,10 @@ The HTTP API never truncates unless asked. The 15,000-character default cap live
 boundary](/docs/guides/mcp) only, because that is the one caller that is a prompt rather than a
 program.
 
-`search` returns manifest rows and never bodies. Narrow with `search`, then fetch what you chose
-with `get`.
+`search` returns manifest rows and never bodies. Each direct hit ends in a `pos` cell — the offset
+where the query's words cluster densest in the body, `-` when they only match the row — so the
+follow-up `get` can be `{"offset": pos, "limit": 2000}` instead of the whole document. Narrow with
+`search`, then fetch what you chose with `get`.
 
 ## Search parameters
 

@@ -36,13 +36,17 @@ is compiled away, which is where much of the token saving comes from.
 
 <Callout title="Only a deviation earns a status cell">
   A concept with no `status`, or one marked `current`, gets `-`. Only `deprecated`, `draft` and
-  anything else unusual survive into the row. The agent already assumes a concept is current, and
-  the row is paid for on every turn.
+  anything else unusual survive into the row — and the reader writes `stale` into it at read time
+  once the concept's `stale_after` date passes, so expiry never touches the snapshot bytes. The
+  agent already assumes a concept is current, and the row is paid for on every turn.
 </Callout>
 
-A Markdown file with no frontmatter is not a concept. The compiler skips it and says so, which is
-how a cloned bundle's `README.md` shows up as what it is instead of vanishing without explanation.
-`index.md` and `log.md` are skipped too, since they are OKF navigation rather than knowledge.
+A Markdown file with no frontmatter still compiles: its id comes from the path, its summary from
+its first sentence, its title from its first heading, and its links from the body. What it earns is
+a conformance warning — `no frontmatter, compiled as plain markdown` — which `--strict` turns into
+a failing exit, so OKF conformance is a gate you can enforce rather than the price of admission. A
+docs folder is knowledge before anyone annotates it. Only `index.md` and `log.md` never become
+concepts, since they are OKF navigation rather than knowledge.
 
 ## Bundle
 

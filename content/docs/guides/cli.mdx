@@ -143,8 +143,12 @@ remote server are driven the same way.
 | ----------------------- | --------------------------------------------------- |
 | `manifest`              | The manifest, or one bundle with `--bundle`          |
 | `snapshot`              | The current digest                                   |
-| `search <words...>`     | Ranked manifest rows, `--k` and `--bundle` apply     |
+| `search <words...>`     | Ranked manifest rows plus a `pos` column, `--k` and `--bundle` apply |
 | `get <id...>`           | Concepts; `--section`, `--offset`, `--limit`, `--find` apply |
+
+Each direct search hit ends in `pos`, the offset of the passage densest in the query's words —
+follow it with `get <id> --offset <pos> --limit 2000` to read the passage instead of the document.
+Linked rows and hits whose match is only in the manifest row show `-`.
 
 ```sh
 langonrock query "okf+unix:///tmp/okf.sock?tenant=acme" search order grain --k 5
