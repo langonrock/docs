@@ -13,7 +13,7 @@ import { Legend } from './charts';
 
 const heading = 'What it costs, and where it loses';
 const description =
-  'Twenty fixed questions over the same corpus, both paths charged for delivering the same concepts. The baseline is the OKF reference consumption pattern, running the same BM25 over the raw Markdown with perfect navigation and never a wrong turn.';
+  'Twenty fixed questions over the same corpus. Both paths pay for delivering the same concepts. The baseline is the OKF reference consumption pattern, running the same BM25 over the raw Markdown with perfect navigation and never a wrong turn.';
 
 const scale = [
   { concepts: '500', manifest: 20549, slice: 20549 },
@@ -48,32 +48,32 @@ export function Cost() {
               A session that bills 116,357 tokens against that baseline bills 64,355 here, over 17
               tool calls instead of 30. Thirteen fewer round trips is thirteen fewer inference turns
               you wait through, so the answer lands sooner as well as cheaper. That is the synthetic
-              catalogue; over real corpora the same harness saves between 51% on the warehouse
-              catalogue and 98% on RFCs. It used to bottom out at 2% on the novels — locating a
-              passage instead of fetching the chapter moved them to 69%.
+              catalogue. Over real corpora the saving runs from 51% on the warehouse catalogue up to
+              98% on RFCs. The novels used to bottom out at 2%. Locating a passage instead of
+              fetching the whole chapter moved them to 69%.
             </p>
 
             <p className="lr-prose mt-5">
               None of that is density. The manifest is larger than a well-kept{' '}
               <code className="lr-mono">index.md</code>, 20,549 tokens against 16,575. The saving
               comes from asking for one section instead of a whole document, which takes a read from
-              594 tokens to 213, and from narrowing to a bundle instead of reading the tenant.
+              594 tokens to 213. The rest comes from narrowing to a bundle instead of reading the
+              whole tenant.
             </p>
 
             <p className="lr-prose mt-5">
               Compiling used to cost ranking. The frontmatter the compiler strips repeated the
               concept id in its <code className="lr-mono">resource</code> and{' '}
               <code className="lr-mono">sources</code> URLs, which happened to help the ranker.
-              Indexing each concept&rsquo;s own names — its id and its frontmatter title, weighted
-              above the other fields — gave it back: hit rate lands at 75% against the
-              baseline&rsquo;s 70%, mean reciprocal rank at 0.44 against 0.43. Queries that
-              describe a concept instead of naming it move the same way — Mrs Beeton&rsquo;s
-              recipes go from 55% on the raw files to 80% here. What still loses, narrowly, is
-              ranking on plain prose: the raw files keep a slightly better top position on the
-              novels, 0.72 mean reciprocal rank against 0.69. The session cost no longer follows
-              it — <code className="lr-mono">find</code> gives prose the sub-document addressing
-              its missing headings never could, and a 3,244-token chapter read becomes a 513-token
-              window.
+              Indexing each concept&rsquo;s own names gave it back. Its id and its frontmatter title
+              now weigh above the other fields, and hit rate lands at 75% against the
+              baseline&rsquo;s 70%, mean reciprocal rank at 0.44 against 0.43. Queries that describe
+              a concept instead of naming it move the same way. Mrs Beeton&rsquo;s recipes go from
+              55% on the raw files to 80% here. What still loses, narrowly, is ranking on plain
+              prose. The raw files keep a slightly better top position on the novels, 0.72 mean
+              reciprocal rank against 0.69. The session cost no longer follows it, because{' '}
+              <code className="lr-mono">find</code> gives prose the sub-document addressing its
+              missing headings never could. A 3,244-token chapter read becomes a 513-token window.
             </p>
 
             <p className="lr-prose lr-note mt-8">
