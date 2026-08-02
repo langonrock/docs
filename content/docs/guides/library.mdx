@@ -11,7 +11,8 @@ const knowledge = open('okf:///var/data?tenant=acme');
 
 const manifest = await knowledge.manifest('sales');
 const hits = await knowledge.search('order grain', { k: 5 });
-const concepts = await knowledge.get(['orders', 'customers'], 'schema');
+const concepts = await knowledge.get(['orders', 'customers'], { section: 'schema' });
+const passage = await knowledge.get(['pride_3'], { find: 'ten thousand a year' });
 ```
 
 `open(dsn)` returns the same interface for every [connection
@@ -25,7 +26,7 @@ interface Connection {
   readonly transport: Transport;
   snapshot: () => Promise<string>;
   manifest: (bundle?: string) => Promise<string>;
-  get: (ids: string[], section?: string) => Promise<Map<string, string>>;
+  get: (ids: string[], options?: GetOptions) => Promise<Map<string, ConceptSlice>>;
   search: (query: string, options?: SearchOptions) => Promise<string>;
   listSource: () => Promise<SourceEntry[]>;
   readSource: (bundle: string, path: string) => Promise<SourceFile | undefined>;
@@ -38,7 +39,31 @@ interface Connection {
 ```
 
 `manifest` and `search` return TSV as a string, because that is what goes into a prompt. `get`
-returns a `Map` keyed by id, with missing ids simply absent.
+returns a `Map` of slices keyed by id, with missing ids simply absent. Every read is a slice, even
+a whole-document one, so a caller always knows how much text exists beyond what it received; the
+library never truncates unless asked, and the 15,000-character default cap lives at the MCP
+boundary only.
+
+```ts
+interface GetOptions {
+  section?: string; // a named section instead of the whole document
+  offset?: number;  // character offset into the addressed text
+  limit?: number;   // maximum characters returned; absent means all of it
+  find?: string;    // literal, case-insensitive phrase; overrides offset
+}
+
+interface ConceptSlice {
+  text: string;
+  start: number;
+  end: number;
+  total: number;
+  matches?: number[];   // offsets of find occurrences, capped at 20
+  matchCount?: number;  // full occurrence count, uncapped
+}
+```
+
+With `find`, the slice becomes a window around the first occurrence — 2,000 characters unless
+`limit` says otherwise — and `matches` is how a caller jumps to the occurrences it did not get.
 
 <Callout title="Remote connections revalidate the manifest for you">
   A remote or socket connection keeps the last manifest body and its ETag, per bundle, and sends
@@ -187,7 +212,7 @@ const reader = await openTenant('./data', 'acme');
 reader.snapshot; // the digest
 reader.ids; // every concept id
 await reader.manifest('sales'); // one contiguous slice, no parsing
-await reader.get(['orders'], 'schema');
+await reader.get(['orders'], { section: 'schema' });
 ```
 
 Readers take no lock, ever. Snapshots are immutable, so a reader either sees the old one or the new

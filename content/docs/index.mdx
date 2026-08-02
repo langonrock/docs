@@ -52,8 +52,13 @@ grain, summary, outgoing links.
 **Byte-deterministic output.** Identical input compiles to identical bytes, so the manifest stays
 in the prompt cache across rebuilds.
 
-**Section addressing.** `get(id, "schema")` returns one slice instead of the whole document, using
-the concept's own Markdown headings.
+**Section addressing.** `get(id, { section: "schema" })` returns one slice instead of the whole
+document, using the concept's own Markdown headings.
+
+**Sliced reads on any document.** `offset` and `limit` page a long concept, and `find` returns a
+window around a literal phrase plus the offset of every occurrence — sub-document addressing that
+works on prose with no headings at all. Over MCP a read is capped at 15,000 characters per concept
+by default.
 
 **Batched reads.** Pass every id you need in one call. N concepts cost one round trip.
 

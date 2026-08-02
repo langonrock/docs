@@ -1,11 +1,11 @@
 import Link from 'next/link';
 import { DotPattern } from '@/components/ui/dot-pattern';
 
-const heading = 'Two ways to read it';
+const heading = 'Three ways to read it';
 const description =
-  'The manifest is paid once and amortised over the session; a search is paid per question. Which ' +
-  'one wins is a property of your corpus, not a configuration — the store ships both behind the ' +
-  'same four verbs.';
+  'The manifest is paid once and amortised over the session; a search is paid per question; a ' +
+  'located window is paid instead of the document it came from. Which one wins is a property of ' +
+  'your corpus, not a configuration — the store ships all three behind the same four verbs.';
 
 const strategies = [
   {
@@ -28,6 +28,16 @@ const strategies = [
       'the prompt.',
     figures: '36 calls · 60,254 tokens · 20,000 concepts',
   },
+  {
+    verbs: 'search → get(find)',
+    title: 'Locate the passage, skip the document',
+    body:
+      'When the question is where the text says something, get takes a literal phrase and returns ' +
+      'a window around the match plus every occurrence’s offset — about 500 tokens whatever the ' +
+      'document size. Four novels answer the same twenty questions for 39,274 tokens against ' +
+      '127,077 by whole chapters. The corpus this store used to lose.',
+    figures: '40 calls · 39,274 tokens · 4 novels',
+  },
 ];
 
 export function Strategies() {
@@ -46,7 +56,7 @@ export function Strategies() {
           <p className="lr-prose">{description}</p>
         </div>
 
-        <div className="mt-14 grid gap-4 md:grid-cols-2">
+        <div className="mt-14 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {strategies.map((strategy) => (
             <div
               key={strategy.verbs}

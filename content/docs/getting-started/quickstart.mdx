@@ -76,7 +76,9 @@ Section names come from the concept's own Markdown headings, lowercased with non
 collapsed to underscores. A `# Common query patterns` heading becomes
 `--section common_query_patterns`. Text before the first heading is the `body` section.
 
-Drop `--section` for the whole concept, and pass several ids to fetch them in one call.
+Drop `--section` for the whole concept, and pass several ids to fetch them in one call. When you
+know a phrase rather than a section, `--find "exact words"` returns the window around it plus the
+offset of every occurrence — the cheap way into a long document with no headings.
 
 </Step>
 </Steps>

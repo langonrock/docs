@@ -27,19 +27,25 @@ claude mcp add langonrock -- langonrock mcp "okf+unix:///tmp/okf.sock?tenant=acm
 
 ## The four tools
 
-| Tool       | Input                          | Output                                    |
-| ---------- | ------------------------------ | ----------------------------------------- |
-| `manifest` | `bundle?`                      | The manifest as TSV                       |
-| `search`   | `query`, `k?`, `bundle?`       | Ranked manifest rows, never bodies        |
-| `get`      | `ids[]`, `section?`            | Concept text, one `@@ id` block each      |
-| `snapshot` | none                           | The current digest                        |
+| Tool       | Input                                          | Output                                    |
+| ---------- | ---------------------------------------------- | ----------------------------------------- |
+| `manifest` | `bundle?`                                      | The manifest as TSV                       |
+| `search`   | `query`, `k?`, `bundle?`                       | Ranked manifest rows, never bodies        |
+| `get`      | `ids[]`, `section?`, `offset?`, `limit?`, `find?` | Framed slices, one `@@ id` block each  |
+| `snapshot` | none                                           | The current digest                        |
 
 `k` is capped at 50 by the schema. `get` requires at least one id, and reports anything it could
 not find as a trailing `@@ missing` block rather than failing the call.
 
-Four verbs, and no more, because every tool definition costs tokens in the client's system prompt.
-Roughly 200 tokens of schema at four tools against roughly 1500 at fifteen. `manifest` and `search`
-narrow, `get` fetches, `snapshot` invalidates. Nothing else earned a place.
+`get` returns at most 15,000 characters per concept by default. A partial slice frames itself as
+`@@ id [start..end of total]`, so the model continues with `offset` or raises `limit` when it
+truly needs more at once. `find` takes a literal case-insensitive phrase and answers with a window
+around the first occurrence plus the offset of every one — the cheap way to answer "where does the
+text say this" without paying for the document.
+
+Four verbs, and no more, because every tool definition costs tokens in the client's system prompt:
+the four definitions measure 1,062, paid every session whether or not any of them is called.
+`manifest` and `search` narrow, `get` fetches, `snapshot` invalidates. Nothing else earned a place.
 
 ## The manifest is exposed twice
 
@@ -70,7 +76,8 @@ than `-` means the concept is deprecated or draft, and that it should say so if 
 
 1. Read the manifest, ideally from the cached prefix rather than by calling the tool.
 2. Pick ids from the rows it already holds.
-3. Call `get` once with all of them, and with `section` when it only needs the schema.
+3. Call `get` once with all of them — with `section` when it only needs the schema, with `find`
+   when it only needs a passage.
 
 Two round trips, and the second one is batched. On a large tenant, replace step 1 with `search`,
 or with `manifest` narrowed to a bundle.

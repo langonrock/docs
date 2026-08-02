@@ -48,8 +48,10 @@ export function Cost() {
               A session that bills 116,357 tokens against that baseline bills 64,355 here, over 17
               tool calls instead of 30. Thirteen fewer round trips is thirteen fewer inference turns
               you wait through, so the answer lands sooner as well as cheaper. That is the synthetic
-              catalogue; over real corpora the same harness saves between 2% on novels and 98% on
-              RFCs, tracking how much structure the documents already carry.
+              catalogue; over real corpora the same harness saves between 66% on the chapter-grain
+              Bible and 98% on RFCs. It used to bottom out at 2% on the novels — locating a passage
+              with <code className="lr-mono">find</code> instead of fetching the chapter moved them
+              to 70%.
             </p>
 
             <p className="lr-prose mt-5">
@@ -67,9 +69,12 @@ export function Cost() {
               above the other fields — gave it back: hit rate lands at 75% against the
               baseline&rsquo;s 70%, mean reciprocal rank at 0.44 against 0.43. Queries that
               describe a concept instead of naming it move the same way — Mrs Beeton&rsquo;s
-              recipes go from 55% on the raw files to 80% here. What still loses is prose with
-              nothing to compile. On four novels read as chapters the saving is 2% and the raw
-              files keep a slightly better top position.
+              recipes go from 55% on the raw files to 80% here. What still loses, narrowly, is
+              ranking on plain prose: the raw files keep a slightly better top position on the
+              novels, 0.72 mean reciprocal rank against 0.69. The session cost no longer follows
+              it — <code className="lr-mono">find</code> gives prose the sub-document addressing
+              its missing headings never could, and a 3,244-token chapter read becomes a 513-token
+              window.
             </p>
 
             <p className="lr-prose lr-note mt-8">

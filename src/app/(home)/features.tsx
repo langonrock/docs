@@ -26,7 +26,7 @@ const features = [
     icon: Scissors,
     title: 'Pay for the section, not the document',
     description:
-      'Ask for the schema of a table or the rollback step of a runbook, addressed by the concept’s own Markdown headings. A read drops from 594 tokens to 213.',
+      'Ask for the schema of a table by its own Markdown heading, or hand find a phrase and get the window around it. A catalogue read drops from 594 tokens to 213; a novel chapter from 3,244 to 513.',
   },
   {
     icon: Layers,

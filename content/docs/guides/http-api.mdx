@@ -14,7 +14,7 @@ The same routes serve a unix socket and a TCP listener. The socket still speaks 
 ```
 GET  /v1/{tenant}/manifest[?bundle=sales]  the manifest, ETag is the snapshot digest
 GET  /v1/{tenant}/snapshot                 {"snapshot": "…", "concepts": n}
-POST /v1/{tenant}/get                      {"ids": [...], "section"?: "schema"}
+POST /v1/{tenant}/get                      {"ids": [...], "section"?, "offset"?, "limit"?, "find"?}
 POST /v1/{tenant}/search                   {"q": "...", "k"?: n, "expand"?: false, "bundle"?: "..."}
 ```
 
@@ -48,11 +48,27 @@ when you only want to know whether anything moved.
 | ---------- | ------------------------------- | -------------------------------------------- |
 | `manifest` | `text/tab-separated-values`     | Raw TSV, comment lines then a header row      |
 | `snapshot` | `application/json`              | `{"snapshot": "…", "concepts": n}`           |
-| `get`      | `application/json`              | An object keyed by id, missing ids absent     |
+| `get`      | `application/json`              | An object of slices keyed by id, missing ids absent |
 | `search`   | `text/tab-separated-values`     | Manifest rows, with `# query` and `# hits` comments |
 
 `get` returns an object rather than an array, so a missing id is simply not a key. Nothing errors
-when one of a batch does not exist.
+when one of a batch does not exist. Each value is a slice — `{"text", "start", "end", "total"}`,
+plus `"matches"` and `"matchCount"` when `find` was set — so a caller always knows how much text
+exists beyond what it received.
+
+## Get parameters
+
+| Field     | Default  | Effect                                                              |
+| --------- | -------- | ------------------------------------------------------------------- |
+| `ids`     | required | Concept ids from the manifest                                       |
+| `section` | none     | One named section instead of the whole document                     |
+| `offset`  | 0        | Character offset into the addressed text                            |
+| `limit`   | none     | Maximum characters returned per concept                             |
+| `find`    | none     | Literal case-insensitive phrase; the slice becomes a window around the first occurrence, 2,000 characters unless `limit` says otherwise, and `offset` is ignored |
+
+The HTTP API never truncates unless asked. The 15,000-character default cap lives at the [MCP
+boundary](/docs/guides/mcp) only, because that is the one caller that is a prompt rather than a
+program.
 
 `search` returns manifest rows and never bodies. Narrow with `search`, then fetch what you chose
 with `get`.

@@ -41,7 +41,7 @@ that same model.
 | ------------------------------------ | ------: |
 | OKF `read_concept`, the whole file   |     594 |
 | `get(id)`, frontmatter compiled away |     445 |
-| `get(id, "schema")`                  | **213** |
+| `get(id, { section: "schema" })`     | **213** |
 | One search result, eight rows        |     719 |
 
 | What can go in the prompt |  Tokens |
@@ -129,16 +129,91 @@ against the raw-file baseline.
 | ------------------ | ------------------------------------ | -----: | ---------------- |
 | `spec`             | 28 IETF RFCs                         |    98% | **100%** vs 95%  |
 | `scripture-coarse` | The Bible, one concept per book      |    97% | 90% vs 90%       |
+| `book-coarse`      | Four novels, one concept per novel   |    89% | 100% vs 100%     |
 | `handbook`         | 1,281 of Mrs Beeton's recipes        |    85% | **100%** vs 90%  |
-| `book-coarse`      | Four novels, one concept per novel   |    64% | 100% vs 100%     |
-| `scripture`        | The Bible, one concept per chapter   |    53% | 90% vs 90%       |
+| `book`             | Four novels, one concept per chapter |    70% | 80% vs 80%       |
+| `scripture`        | The Bible, one concept per chapter   |    66% | 90% vs 90%       |
 | `reference`        | The warehouse catalogue above        |    52% | **75%** vs 70%   |
-| `book`             | Four novels, one concept per chapter |     2% | 80% vs 80%       |
 
 The store meets or beats the raw files on every profile except the novels' top position (MRR 0.69
-against 0.72). On prose with no headings and no links the saving is about two percent: the
-advantage does not come from having a store, it comes from documents that were already structured.
-A folder of chapters is better served by reading the files.
+against 0.72). The savings on the prose profiles come from `find`, covered next: before it, prose
+with no headings and no links saved about two percent, because the advantage came entirely from
+documents that were already structured.
+
+## Locating instead of reading: before and after
+
+Sliced reads changed the read path: `offset` and `limit` window a concept, `find` locates a literal
+phrase and returns a window around it plus the offset of every occurrence, and the MCP boundary
+caps a read at 15,000 characters per concept by default. The same harness ran on the commit before
+the change and on the commit after, same machine, so every claim below is a measured pair.
+
+### Tokens
+
+Best strategy on each side, against the OKF navigator over the raw files:
+
+| Profile            |    OKF raw | Before this change | After  | Saving before | Saving after |
+| ------------------ | ---------: | -----------------: | -----------: | ------: | ------: |
+| `spec`             |    756,168 |             13,995 |       13,995 |     98% |     98% |
+| `scripture-coarse` |  1,278,420 |             39,395 |       39,395 |     97% |     97% |
+| `book-coarse`      |    338,296 |            122,236 |   **37,336** |     64% | **89%** |
+| `handbook`         |    125,798 |             19,200 |       19,200 |     85% |     85% |
+| `book`             |    130,101 |            127,077 |   **39,274** |      2% | **70%** |
+| `scripture`        |    159,174 |             75,186 |   **53,361** |     53% | **66%** |
+| `reference`        |    116,357 |             56,423 |       56,423 |     52% |     52% |
+
+Only the profiles whose questions are literal passages move, because `find` adds a retrieval unit
+rather than changing compilation or ranking. Where the questions are natural language — the
+catalogue, the recipes, the RFCs — the sessions are byte-for-byte identical to before, which is the
+no-regression half of the measurement. `scripture-coarse` keeps its old best honestly: a 66-row
+manifest amortised over the session still beats paying a search per question, so `find` wins where
+the manifest is large or the documents are, not everywhere.
+
+Per read, on the corpora where locating applies: a novel chapter costs 3,244 tokens whole and
+**513** as a `find` window, frame and match offsets included; a Bible chapter costs 841 whole and
+**476** located.
+
+### Round trips
+
+`find` spends exactly what search-first spends: two calls per question, 40 per session. Where it
+became the cheapest strategy the store now trades more calls for fewer tokens — `book` moves from
+21 calls at 127,077 tokens to 40 at 39,274 — and the manifest strategy remains available at its old
+cost for a caller that prizes turns over tokens. Nothing else moved: 16 to 21 calls for the
+manifest strategy, 35 to 40 for search-first, before and after.
+
+### Retrieval
+
+Unchanged in every cell, by design: ranking was not touched, and the before/after runs agree on hit
+rate and MRR to the last digit on all seven profiles. What `find` changes is what happens after the
+right document is found — attribution inside it becomes an exact offset rather than a read of the
+whole thing.
+
+### Speed
+
+Every existing latency is within run-to-run noise of its before value: a warm query moves by
+thousandths of a millisecond in both directions, and a batched `get` stays flat. The new operation
+costs the same order as the old ones — a `find` is one `indexOf` sweep over the decompressed body:
+
+| Operation, median            | Embedded     | Over a unix socket |
+| ---------------------------- | ------------ | -----------------: |
+| `get`, whole concepts        | 0.04–0.29 ms |            0.21 ms |
+| `get` with `find`            | 0.05–0.29 ms |          0.16–0.21 ms |
+
+### The cap
+
+The other half of the change is the worst case a naive MCP read can produce. `get` over MCP
+returns at most 15,000 characters per concept by default, framed as `@@ id [start..end of total]`
+and continued with `offset`; the library and the HTTP API stay unbounded by default. Measured as
+the largest single concept of each corpus:
+
+| Largest concept in     | Naive `get` | Through the MCP cap |
+| ---------------------- | ----------: | ------------------: |
+| `book-coarse`, a novel |     172,994 |           **3,758** |
+| `spec`, RFC 9110       |     122,797 |           **3,758** |
+| `handbook`             |      76,221 |           **3,759** |
+| `book`, one chapter    |      11,406 |           **3,760** |
+
+The four tool definitions grew with the three new parameters: 833 tokens per session before, 1,062
+after. One window replacing one chapter repays the difference about twelve times over.
 
 ## How much to trust these numbers
 

@@ -74,6 +74,19 @@ langonrock get orders customers --section schema --data ./data --tenant acme
 `get` prints each concept prefixed by `@@ <id>`. It warns on stderr for any id it could not find,
 and exits 1 when at least one is missing.
 
+A partial read — `--offset`, `--limit`, or a `--find` window — frames itself instead:
+
+```sh
+langonrock get moby --find "Call me Ishmael" --limit 200 --data ./data --tenant library
+```
+
+```
+@@ moby [0..200 of 1216418] 1 match at 22
+```
+
+`--find` is a literal, case-insensitive phrase; the output is a window around the first occurrence
+and the offset of every one, which is how you jump to the others with `--offset`.
+
 Both read the store directly. Use [`query`](#query) instead to go through a daemon or a server.
 
 ### serve
@@ -131,7 +144,7 @@ remote server are driven the same way.
 | `manifest`              | The manifest, or one bundle with `--bundle`          |
 | `snapshot`              | The current digest                                   |
 | `search <words...>`     | Ranked manifest rows, `--k` and `--bundle` apply     |
-| `get <id...>`           | Concepts, `--section` applies                        |
+| `get <id...>`           | Concepts; `--section`, `--offset`, `--limit`, `--find` apply |
 
 ```sh
 langonrock query "okf+unix:///tmp/okf.sock?tenant=acme" search order grain --k 5
@@ -179,6 +192,9 @@ langonrock query "$DSN" sync
 | Flag                  | Default | Applies to           |
 | --------------------- | ------- | -------------------- |
 | `--section <name>`    | none    | `get`                |
+| `--offset <n>`        | 0       | `get`                |
+| `--limit <n>`         | none    | `get`                |
+| `--find <text>`       | none    | `get`                |
 | `--k <n>`             | 8       | `search`             |
 | `--bundle <name>`     | the directory name for `compile`, no filter elsewhere | `compile`, `manifest`, `search` |
 | `--out <file>`        | stdout  | anything that prints |

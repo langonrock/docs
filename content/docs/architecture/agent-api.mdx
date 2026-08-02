@@ -7,16 +7,17 @@ icon: Waypoints
 Few verbs, all deterministic.
 
 ```
-manifest()                  -> TSV, usually already in the cached prefix
-get(ids[], section?)        -> batch, one round trip for N concepts
-snapshot()                  -> digest, to check whether the manifest is stale
-search(query, k)            -> BM25 plus a capped one-hop expansion
+manifest()                            -> TSV, usually already in the cached prefix
+get(ids[], {section, offset, limit, find}?) -> slices, one round trip for N concepts
+snapshot()                            -> digest, to check whether the manifest is stale
+search(query, k)                      -> BM25 plus a capped one-hop expansion
 ```
 
 ## Tool count is a token cost
 
-Four tools run about 200 tokens of schema in the client's system prompt. Fifteen run about 1,500,
-paid on every single turn whether or not any of them is called.
+The four definitions measure 1,062 tokens in the client's system prompt, paid on every single turn
+whether or not any of them is called, and the bill scales with the count: fifteen tools would run
+several thousand.
 
 That is the whole reason this list is short. Each verb had to earn a place against that standing
 cost. `manifest` and `search` narrow, `get` fetches, `snapshot` invalidates. Nothing else did.
@@ -32,6 +33,16 @@ walk.
 
 The `bundle` column does the same job for filtering. The agent narrows without loading anything
 extra.
+
+## A read can no longer flood the context
+
+Every `get` returns slices, not unbounded strings, and the MCP layer caps a read at 15,000
+characters per concept by default. A partial slice frames itself — `@@ id [start..end of total]` —
+so the model knows how to continue with `offset`, and `find` takes a literal phrase and answers
+with a window around the first occurrence plus the offset of every one. The worst case a naive
+read can put into a context fell from the size of the document, whatever it is, to a constant
+around 3,800 tokens; a located passage runs about 500. The library and the HTTP API stay unbounded
+by default, because their callers are programs rather than prompts.
 
 ## Why there is no `put` verb
 
@@ -74,13 +85,15 @@ Manifest rows. Never bodies.
 
 That keeps the two-hop path intact: narrow with `search`, then fetch only the chosen ids with
 `get`. A search that returned bodies would be a single hop that costs more than the manifest it was
-meant to avoid reading.
+meant to avoid reading. Pinpointing inside a hit is `get`'s job too: pass `find` and the second hop
+returns the passage instead of the document.
 
 ## The shape of a good session
 
 1. The manifest is already in the prefix, cached.
 2. The agent picks ids from rows it holds.
-3. One `get` with every id, and a `section` when only the schema is needed.
+3. One `get` with every id — a `section` when only the schema is needed, a `find` when only a
+   passage is.
 
 On a large tenant, step 1 becomes `search` or `manifest(bundle)`. The count of round trips does not
 change.
