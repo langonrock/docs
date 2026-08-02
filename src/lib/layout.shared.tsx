@@ -1,6 +1,7 @@
 import type { BaseLayoutProps } from 'fumadocs-ui/layouts/shared';
 import Image from 'next/image';
-import { appName, gitConfig } from './shared';
+import { GithubStars } from '@/components/github-stars';
+import { appName } from './shared';
 
 export function baseOptions(): BaseLayoutProps {
   return {
@@ -21,6 +22,6 @@ export function baseOptions(): BaseLayoutProps {
       ),
     },
     themeSwitch: { enabled: false },
-    githubUrl: `https://github.com/${gitConfig.user}/${gitConfig.repo}`,
+    links: [{ type: 'custom', secondary: true, children: <GithubStars /> }],
   };
 }
