@@ -1,6 +1,6 @@
 ---
 title: MCP server
-description: Four tools for Claude Code, Cursor, or anything else that speaks MCP.
+description: Six tools for Claude Code, Cursor, or anything else that speaks MCP.
 icon: Bot
 ---
 
@@ -25,14 +25,16 @@ start:
 claude mcp add langonrock -- langonrock mcp "okf+unix:///tmp/okf.sock?tenant=acme"
 ```
 
-## The four tools
+## The six tools
 
-| Tool       | Input                                          | Output                                            |
-| ---------- | ---------------------------------------------- | ------------------------------------------------- |
-| `manifest` | `bundle?`                                      | The manifest as TSV                               |
-| `search`   | `query`, `k?`, `bundle?`                       | Ranked manifest rows plus a `pos` cell, never bodies |
-| `get`      | `ids[]`, `section?`, `offset?`, `limit?`, `find?` | Framed slices, one `@@ id` block each          |
-| `snapshot` | none                                           | The current digest                                |
+| Tool       | Input                                             | Output                                               |
+| ---------- | ------------------------------------------------- | ---------------------------------------------------- |
+| `manifest` | `bundle?`                                         | The manifest as TSV                                  |
+| `search`   | `query`, `k?`, `bundle?`                          | Ranked manifest rows plus a `pos` cell, never bodies |
+| `get`      | `ids[]`, `section?`, `offset?`, `limit?`, `find?` | Framed slices, one `@@ id` block each                |
+| `snapshot` | none                                              | The current digest                                   |
+| `write`    | `bundle`, `path`, `content`, `replaces?`          | The new digest, plus that file's compiler warnings   |
+| `delete`   | `bundle`, `path`, `replaces?`                     | The new digest                                       |
 
 `k` is capped at 50 by the schema. `get` requires at least one id, and reports anything it could
 not find as a trailing `@@ missing` block rather than failing the call.
@@ -48,9 +50,10 @@ cell, the character offset where the query's words cluster densest in that conce
 they only match its manifest row. The follow-up is `get` with `{offset: pos, limit: 2000}` — a
 located passage instead of a capped document, for descriptive questions `find` cannot anchor.
 
-Four verbs, and no more, because every tool definition costs tokens in the client's system prompt:
-the four definitions measure 1,122, paid every session whether or not any of them is called.
-`manifest` and `search` narrow, `get` fetches, `snapshot` invalidates. Nothing else earned a place.
+Six verbs, and no more, because every tool definition costs tokens in the client's system prompt.
+The four read tools measure 1,122, `write` adds 413 and `delete` 206, so a session that never
+touches knowledge still pays 1,741. `manifest` and `search` narrow, `get` fetches, `snapshot`
+invalidates, `write` persists, `delete` retracts. Nothing else earned a place.
 
 ## The manifest description carries the tenant's own advice
 
@@ -99,15 +102,59 @@ than `-` means the concept is deprecated, draft, or stale — the reader demotes
 Two round trips, and the second one is batched. On a large tenant, replace step 1 with `search`,
 or with `manifest` narrowed to a bundle — the manifest tool's own description says which.
 
-## Writing is not an MCP tool
+## Writing goes through the source, never the snapshot
 
-There is no `put` verb, and that is deliberate. The source folder is the truth and the watcher
-recompiles from it, so a snapshot written through MCP would be silently replaced by the next
-filesystem event, at most 30 seconds later. The write would look like it succeeded and then quietly
-vanish, which is worse than not offering it.
+`write` and `delete` change the source Markdown and then recompile, which is the only shape that
+survives the watcher. A tool that wrote a snapshot directly would have it silently replaced by the
+next filesystem event, at most 30 seconds later; the write would look like it succeeded and then
+vanish. Writing the file the watcher already reads keeps one writer and one source of truth instead
+of two that race, and it is the same path [the source API](/docs/guides/editing) takes.
 
-An agent that should change knowledge edits the source Markdown the way a human does, through
-[the source API](/docs/guides/editing), and the watcher picks it up.
+### The precondition, for a caller with no hash
+
+Replacing a concept needs the hash of the version being replaced, or two editors silently lose each
+other's work. A model has no hash. Fetching one first would cost a round trip on every write, and a
+separate read-the-hash tool would cost a whole definition in every session's prompt, so the refusal
+carries what the retry needs:
+
+```
+write {bundle: "inbox", path: "idea.md", content: "..."}
+  → concept already exists: re-read the concept and retry with its new hash
+    retry with replaces: "968f33390cab..."
+
+write {bundle: "inbox", path: "idea.md", content: "...", replaces: "968f33390cab..."}
+  → wrote inbox/idea.md (hash 4c1e...), snapshot 19e8c4026a96, 1 concepts
+```
+
+Creating costs one call, because omitting `replaces` is what asserts the concept is new. Replacing
+costs two the first time. Neither can silently overwrite.
+
+`delete` works the same way without the create case, so its hash is not optional and a deletion is
+always two calls. Aimed at a concept that is not there, it answers `concept does not exist` and
+offers no hash, rather than inviting a retry that cannot succeed.
+
+### A tenant is created by the first write
+
+Asking an agent to persist something for a tenant that does not exist yet is an ordinary first
+request. `write` creates the directory, registers it in `sources.json` and starts watching it, with
+no restart and no setup. Only the tenant the connection was already scoped to is ever created, so
+this reaches nothing the caller could not already write.
+
+<Callout type="warn" title="A tenant with knowledge is never bootstrapped over">
+  A tenant that already has snapshots but no `sources.json` entry is refused instead. That is what
+  `langonrock sync` on the command line leaves behind, and pointing it at a fresh empty directory
+  would replace its whole manifest with a single file. Register the real directory before writing to
+  it.
+</Callout>
+
+The recompile happens before the tool answers, so the concept is visible to `manifest`, `search` and
+`get` on the very next call. The response carries the new digest, the concept count, and the
+compiler's warnings for the file just written — a missing `type`, a link resolving to nothing — so
+an agent learns its frontmatter was wrong at the moment it wrote it.
+
+Ids are the shortest unambiguous form of their path, so creating a file can rename a concept nobody
+touched. The tool description says so, and an agent should re-read the manifest after writing rather
+than reuse ids it saw before.
 
 ## Debugging it
 

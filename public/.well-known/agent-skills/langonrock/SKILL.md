@@ -1,10 +1,10 @@
 ---
 name: langonrock
-description: Read an Open Knowledge Format store through langonrock's four MCP tools. Use when an agent needs to answer questions from a compiled knowledge base without crawling raw Markdown, or when setting up langonrock as an MCP server for Claude Code or Cursor.
+description: Read and write an Open Knowledge Format store through langonrock's six MCP tools. Use when an agent needs to answer questions from a compiled knowledge base without crawling raw Markdown, or when setting up langonrock as an MCP server for Claude Code or Cursor.
 license: MIT
 ---
 
-# Reading a langonrock store
+# Reading and writing a langonrock store
 
 langonrock compiles a folder of Open Knowledge Format bundles into a read model an agent queries by
 id. The point is token cost: read a dense manifest once, then fetch only the sections you need,
@@ -28,14 +28,16 @@ The connection string picks the backend, and the tool surface is identical acros
 Point it at a daemon rather than a path when several agent sessions share one machine — every
 invocation then reuses one process instead of paying cold start.
 
-## The four tools
+## The six tools
 
-| Tool       | Input                                             | Output                                    |
-| ---------- | ------------------------------------------------- | ----------------------------------------- |
-| `manifest` | `bundle?`                                         | The manifest as TSV                       |
-| `search`   | `query`, `k?`, `bundle?`                          | Ranked manifest rows and a `pos` cell     |
-| `get`      | `ids[]`, `section?`, `offset?`, `limit?`, `find?` | Framed slices, one `@@ id` block each     |
-| `snapshot` | none                                              | The current digest                        |
+| Tool       | Input                                             | Output                                             |
+| ---------- | ------------------------------------------------- | -------------------------------------------------- |
+| `manifest` | `bundle?`                                         | The manifest as TSV                                |
+| `search`   | `query`, `k?`, `bundle?`                          | Ranked manifest rows and a `pos` cell              |
+| `get`      | `ids[]`, `section?`, `offset?`, `limit?`, `find?` | Framed slices, one `@@ id` block each              |
+| `snapshot` | none                                              | The current digest                                 |
+| `write`    | `bundle`, `path`, `content`, `replaces?`          | The new digest, plus that file's compiler warnings |
+| `delete`   | `bundle`, `path`, `replaces?`                     | The new digest                                     |
 
 `search` never returns bodies. `k` is capped at 50. `get` needs at least one id and reports ids it
 could not resolve as a trailing `@@ missing` block instead of failing the call.
@@ -77,10 +79,20 @@ a concept past its `stale_after` date at read time. Say so when you answer from 
 
 ## Writing
 
-There is no `put` tool, deliberately. The source folder is the truth and a watcher recompiles from
-it, so a snapshot written through MCP would be silently replaced within about 30 seconds. Change
-knowledge by editing the source Markdown — directly, or through the source API at
-https://langonrock.com/docs/guides/editing — and let the watcher pick it up.
+`write` creates or replaces one concept and `delete` removes one. Both change the source Markdown
+and recompile before answering, so the change is visible to `manifest`, `search` and `get` on your
+next call. Send the whole document in `content`, not a patch, with frontmatter carrying at least a
+`type`.
+
+Replacing needs `replaces`, the hash of the version being replaced. You are not expected to know it:
+call without it and the refusal names the hash to retry with. Omit it when creating — its absence is
+what asserts the concept is new. `delete` has no create case, so its hash is never optional.
+
+Writing to a store with no knowledge in it yet creates the tenant, and naming a bundle that does not
+exist creates the bundle, so persisting a first note needs no setup.
+
+Ids are the shortest unambiguous form of their path, so adding a file can rename a concept nobody
+edited. Re-read the manifest after writing instead of reusing ids you saw before.
 
 ## Checking for staleness
 

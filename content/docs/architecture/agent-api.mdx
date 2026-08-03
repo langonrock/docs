@@ -1,6 +1,6 @@
 ---
 title: The agent API
-description: Four verbs, why there is no fifth, and why tool count is itself a token cost.
+description: Six verbs, what each had to earn, and why tool count is itself a token cost.
 icon: Waypoints
 ---
 
@@ -11,16 +11,28 @@ manifest()                            -> TSV, usually already in the cached pref
 get(ids[], {section, offset, limit, find}?) -> slices, one round trip for N concepts
 snapshot()                            -> digest, to check whether the manifest is stale
 search(query, k)                      -> ranked rows, each direct hit carrying pos
+write(bundle, path, content, replaces?) -> new digest, plus that file's warnings
+delete(bundle, path, replaces?)       -> new digest
 ```
 
 ## Tool count is a token cost
 
-The four definitions measure 1,122 tokens in the client's system prompt, paid on every single turn
-whether or not any of them is called, and the bill scales with the count: fifteen tools would run
-several thousand.
+The four read definitions measure 1,122 tokens in the client's system prompt, paid on every single
+turn whether or not any of them is called, and the bill scales with the count: fifteen tools would
+run several thousand.
 
 That is the whole reason this list is short. Each verb had to earn a place against that standing
-cost. `manifest` and `search` narrow, `get` fetches, `snapshot` invalidates. Nothing else did.
+cost. `manifest` and `search` narrow, `get` fetches, `snapshot` invalidates. Nothing else did until
+an agent needed somewhere to put what it learned.
+
+`write` costs 413 and `delete` 206, taking the standing bill to 1,741 — 55 percent on top of the
+read-only figure. `write` alone ties `get` as the most expensive definition in the set, and 70 of
+its tokens are the single paragraph teaching a model to recover from a refused precondition. That
+paragraph is the cheap option: the alternative, a separate tool that reads a concept's hash, would
+have cost a whole definition and left `write` explaining `replaces` anyway. `delete` is half the
+size because it inherits the lesson by reference instead of restating it.
+
+A deployment that only ever reads pays all 619 for nothing. There is no flag that omits them.
 
 ## Batching `get` is what kills latency
 
@@ -44,19 +56,43 @@ read can put into a context fell from the size of the document, whatever it is, 
 around 3,800 tokens; a located passage runs about 500. The library and the HTTP API stay unbounded
 by default, because their callers are programs rather than prompts.
 
-## Why there is no `put` verb
+## Why the write verb writes Markdown, not a snapshot
 
 An earlier draft listed `put(bundle, changes)` as the fourth verb, "only if agents write". The
-watcher settled that question by making it incoherent.
+watcher settled that question by making that particular shape incoherent.
 
 The source folder is the truth, and the watcher recompiles from it. An agent that wrote a snapshot
 through `put` would have that snapshot silently replaced by the next filesystem event or the next
 rescan, at most 30 seconds later. The write would look like it succeeded and then quietly vanish,
 which is worse than not offering it.
 
-Agents that should change knowledge edit the source Markdown like a human does, through [the source
-API](/docs/guides/editing), and the watcher picks it up. That keeps one writer and one source of
-truth instead of two that race.
+So the verb that exists writes the source Markdown, exactly the way a human does through [the source
+API](/docs/guides/editing), and then recompiles before answering. One writer, one source of truth,
+and the watcher has nothing to disagree with. What the draft got wrong was the target, not the
+capability.
+
+### A precondition a model can actually satisfy
+
+Every other client names the version it replaces with an `If-Match` hash, which is what stops two
+editors losing each other's work. A model has no hash and no cheap way to get one: fetching it first
+costs a round trip on every write, and a tool that returns it costs a definition in every session.
+
+The refusal carries it instead. A `write` without `replaces` against an existing concept is refused
+with that concept's current hash appended, so the retry succeeds. Creating stays one call, because
+omitting `replaces` is the assertion that the concept is new; replacing costs two the first time.
+The hash lookup runs on any failure rather than on a recognised conflict, because the embedded path
+throws its own message and the remote path throws a 412, and matching either string would break the
+moment one of them was reworded.
+
+### Creating the tenant is part of writing
+
+A tenant with no source directory is created by the first write to it, registered, and watched from
+then on. The daemon gained a mutable tenant map for this, so the registration takes effect without a
+restart.
+
+The one case that is refused is a tenant that already has snapshots and no registered directory,
+which is what `sync` on the command line leaves behind. Bootstrapping that would compile an empty
+folder over a real manifest.
 
 ## The MCP server
 

@@ -3,7 +3,7 @@
   "name": "com.langonrock/langonrock",
   "title": "Lang on Rock",
   "version": "0.2.0",
-  "description": "Four read tools over a compiled OKF knowledge store, served over stdio.",
+  "description": "Six tools over a compiled OKF knowledge store, four to read and two to write, served over stdio.",
   "websiteUrl": "https://langonrock.com",
   "repository": {
     "source": "github",

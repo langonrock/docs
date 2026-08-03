@@ -19,8 +19,14 @@ snapshot written directly within seconds.
 Two files, both covered in [Running a server](/docs/guides/running-a-server).
 
 `sources.json` says where a tenant's Markdown is. `tokens.json` says which tokens may change it. A
-tenant with no entry in `sources.json` stays readable and refuses writes with a 409, which is the
-right default and needs no flag.
+tenant with no entry in `sources.json` stays readable, and every method except `PUT` refuses with a
+409, which is the right default and needs no flag.
+
+A `PUT` is the exception: a tenant with no directory and no snapshots is created by it, registered,
+and watched from then on, so an agent asked to persist a first note needs no setup. Only the tenant
+the token already grants is ever created. A tenant that has snapshots but no entry — what
+`langonrock sync` on the command line leaves behind — is still refused, because compiling a fresh
+empty folder over it would replace its manifest with nothing.
 
 ```json
 { "acme": "/home/me/okf/sources/acme" }

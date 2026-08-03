@@ -34,8 +34,10 @@ echo '{ "acme": "/home/me/okf/sources/acme" }' > ~/okf/data/sources.json
 Write the path in full. Nothing expands `~` inside a JSON string.
 
 `sources.json` does two things at once. It makes the tenant writable over the API, and it tells
-`serve` to compile the folder at startup and keep watching it. A tenant with no entry stays
-readable and refuses writes, which is the right default and needs no flag.
+`serve` to compile the folder at startup and keep watching it. A tenant with no entry stays readable
+and refuses writes, which is the right default and needs no flag — with one exception: a `PUT` to a
+tenant that has no directory and no snapshots creates one, and the daemon adds it to this file and
+starts watching it without a restart.
 
 </Step>
 <Step>
@@ -74,7 +76,9 @@ terminal. Running both would put two watchers on one tenant.
 
 One watcher starts per entry in `sources.json`, and the server keeps them rather than discarding
 them, so a client that writes through the API can ask for a recompile and be told the new digest.
-That is what `POST /v1/{tenant}/sync` uses.
+That is what `POST /v1/{tenant}/sync` uses. The set is not fixed at startup: a tenant created by its
+first write gets a watcher then and there, so `0 writable tenants` on the banner is a starting point
+rather than a verdict.
 
 Without `--socket`, the daemon listens on `<data>/langonrock.sock`.
 

@@ -220,10 +220,16 @@ the largest single concept of each corpus:
 | `handbook`             |      76,221 |           **3,759** |
 | `book`, one chapter    |      11,406 |           **3,760** |
 
-The four tool definitions grew with the three new parameters: 833 tokens per session before, 1,062
+The four read definitions grew with the three new parameters: 833 tokens per session before, 1,062
 after. One window replacing one chapter repays the difference about twelve times over. The `pos`
 column's explanation, the per-tenant strategy advice and the `stale` status later put them at
 1,122; the same window-for-chapter trade repays those sixty tokens about sixty times over.
+
+Adding the write side took the standing bill to 1,741: `write` costs 413, `delete` 206. That is 55
+percent on top of the read-only figure, and unlike the slicing parameters it does not repay itself
+in reads — a client that never writes pays 619 tokens per session for tools it will not call.
+Against a session that bills 64,355 it is under one percent; against the entry fee it is the
+largest single increase the tool surface has taken.
 
 ## Locating without a quote: the pos column
 

@@ -4,7 +4,7 @@ const heading = 'Three ways to read it';
 const description =
   'The manifest costs once, amortised over the session. A search costs once per question. A ' +
   'located window replaces the cost of the document it came from. Which one wins depends on your ' +
-  'corpus, not on a setting, and the store ships all three behind the same four verbs.';
+  'corpus, not on a setting, and the store ships all three behind the same four read verbs.';
 
 const strategies = [
   {

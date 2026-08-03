@@ -84,9 +84,14 @@ connection string.
 **Refuses to leak its own credentials.** TCP needs a token, and any address past loopback needs
 TLS, or the server declines to start.
 
-**MCP server.** Four verbs for Claude Code, Cursor, or anything else that speaks MCP — with tool
-descriptions that carry the tenant's own numbers: the server measures the manifest at startup and
-advises manifest-first or search-first.
+**MCP server.** Six verbs for Claude Code, Cursor, or anything else that speaks MCP — four to read
+and two to write, with tool descriptions that carry the tenant's own numbers: the server measures
+the manifest at startup and advises manifest-first or search-first.
+
+**A model can persist knowledge, safely.** `write` and `delete` change a concept and recompile
+before answering, and a tenant that does not exist yet is created by the first write. Both still
+name the version they replace, and the refusal hands back the hash to retry with, so a model
+satisfies the precondition without a lost update.
 
 **Editable over the network.** Create, change and delete concepts through the API, with a mandatory
 precondition so two editors cannot silently overwrite each other.
