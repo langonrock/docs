@@ -1,0 +1,256 @@
+---
+title: Agent frameworks
+description: Wiring the store into the Vercel AI SDK or LangChain, over MCP or as two native tools.
+icon: Blocks
+---
+
+Two shapes, and the choice is mostly about where the code runs.
+
+| | How | Where it works |
+| --- | --- | --- |
+| **MCP** | The framework spawns `langonrock mcp` and gets six tools | A machine that can run a binary |
+| **Native tools** | Your own tool definitions over a [`Connection`](/docs/guides/library) | Anywhere, including a serverless function |
+
+MCP costs no code and includes `write` and `delete`. Native tools cost two definitions and give you
+the thing MCP cannot reach from inside a framework: the manifest in the cached prompt prefix, which
+is where most of the saving is.
+
+## Vercel AI SDK
+
+### Over MCP
+
+```ts
+import { createMCPClient } from '@ai-sdk/mcp';
+import { Experimental_StdioMCPTransport } from '@ai-sdk/mcp/mcp-stdio';
+
+const mcp = await createMCPClient({
+  transport: new Experimental_StdioMCPTransport({
+    command: 'langonrock',
+    args: ['mcp', 'okf+unix:///tmp/okf.sock?tenant=acme'],
+  }),
+});
+
+const result = streamText({
+  model: anthropic('claude-sonnet-5'),
+  tools: await mcp.tools(),
+  prompt: question,
+  onEnd: () => mcp.close(),
+});
+```
+
+Point the connection string at a [running daemon](/docs/guides/running-a-server) rather than at a
+store path. The transport spawns one process per client, and a daemon lets all of them share warm
+indexes instead of each paying cold start.
+
+On AI SDK releases before the MCP client moved into its own package, the same two imports are
+`experimental_createMCPClient` from `ai` and `Experimental_StdioMCPTransport` from `ai/mcp-stdio`.
+
+<Callout type="warn" title="stdio cannot be deployed to a serverless function">
+  It spawns a subprocess and keeps it alive for the life of the client, which a function invocation
+  has nowhere to put. Deployed apps take the native-tools path below against a served daemon.
+</Callout>
+
+### As native tools
+
+```ts
+import { connect } from 'langonrock/client';
+import { tool } from 'ai';
+import { z } from 'zod';
+
+const knowledge = connect('okf+https://knowledge.internal:7777?token=read-only');
+
+export const tools = {
+  knowledge_search: tool({
+    description:
+      'Rank concepts against a query. Returns manifest rows, never bodies. Each direct hit ends ' +
+      'in a pos cell, the offset of the passage densest in the query words, for a windowed get.',
+    inputSchema: z.object({
+      query: z.string(),
+      k: z.number().int().min(1).max(50).optional(),
+    }),
+    execute: ({ query, k }) => knowledge.search(query, { k }),
+  }),
+  knowledge_get: tool({
+    description:
+      'Fetch concepts by id, batched: pass every id you need in one call. Prefer a section, or ' +
+      'offset and limit around a pos from search, over the whole document.',
+    inputSchema: z.object({
+      ids: z.array(z.string()).min(1),
+      section: z.string().optional(),
+      offset: z.number().optional(),
+      limit: z.number().optional(),
+      find: z.string().optional(),
+    }),
+    execute: async ({ ids, ...options }) => Object.fromEntries(await knowledge.get(ids, options)),
+  }),
+};
+```
+
+`get` answers with a `Map` keyed by id, so it needs `Object.fromEntries` before it can be a tool
+result. `search` already returns TSV and goes back as it is.
+
+Write the descriptions to say when to call, not only what the tool does. That is the same reason
+[the MCP server's descriptions](/docs/guides/mcp) are as long as they are: a description that only
+describes gets under-triggered.
+
+### The manifest belongs in the prefix
+
+```ts
+const { text } = await generateText({
+  model: anthropic('claude-sonnet-5'),
+  tools,
+  stopWhen: stepCountIs(6),
+  messages: [
+    {
+      role: 'system',
+      content: `Knowledge manifest for tenant acme.\n\n${await knowledge.manifest()}`,
+      providerOptions: { anthropic: { cacheControl: { type: 'ephemeral' } } },
+    },
+    { role: 'user', content: question },
+  ],
+});
+```
+
+This is the whole argument for the read model, expressed in one message. The agent picks ids from
+rows it already holds, so the first `get` is batched and there is no round trip spent discovering
+what exists. The compiler is byte-deterministic, so a rebuild that changes nothing leaves the cache
+warm. A manifest arriving mid-conversation as a tool result reaches none of that.
+
+Fetching it every turn is nearly free: a remote connection revalidates with `If-None-Match` and an
+unchanged snapshot answers 304 with no transfer. Read the manifest, do not compare `snapshot()`
+yourself.
+
+On a large tenant, narrow the prefix to one bundle with `manifest('sales')`, or drop it and let the
+agent start at `knowledge_search`. [The manifest stops being worth reading whole somewhere past a
+few thousand concepts](/docs/guides/large-tenants).
+
+## LangChain
+
+### JavaScript, over MCP
+
+```ts
+import { MultiServerMCPClient } from '@langchain/mcp-adapters';
+
+const client = new MultiServerMCPClient({
+  mcpServers: {
+    langonrock: {
+      transport: 'stdio',
+      command: 'langonrock',
+      args: ['mcp', 'okf+unix:///tmp/okf.sock?tenant=acme'],
+    },
+  },
+});
+
+const tools = await client.getTools();
+```
+
+### JavaScript, as tools
+
+```ts
+import { tool } from '@langchain/core/tools';
+import { z } from 'zod';
+
+const knowledgeSearch = tool(({ query, k }) => knowledge.search(query, { k }), {
+  name: 'knowledge_search',
+  description: 'Rank concepts against a query. Returns manifest rows, never bodies.',
+  schema: z.object({
+    query: z.string(),
+    k: z.number().int().min(1).max(50).optional(),
+  }),
+});
+```
+
+`knowledge_get` is the same `connect()` client with the `GetOptions` fields as its schema. Put the
+manifest in the system message of the prompt template and the caching argument above applies
+unchanged.
+
+### A retriever
+
+`search` returns TSV, and one row is one `Document`:
+
+```ts
+import { BaseRetriever } from '@langchain/core/retrievers';
+import { Document } from '@langchain/core/documents';
+
+class ManifestRetriever extends BaseRetriever {
+  lc_namespace = ['langonrock'];
+
+  async _getRelevantDocuments(query: string) {
+    const tsv = await knowledge.search(query, { k: 8 });
+
+    return tsv
+      .split('\n')
+      .filter((line) => line !== '' && !line.startsWith('#') && !line.startsWith('id\t'))
+      .map((line) => {
+        const [id, bundle, kind, status, grain, summary, links, pos] = line.split('\t');
+
+        return new Document({
+          pageContent: summary,
+          metadata: { id, bundle, kind, status, grain, links, pos },
+        });
+      });
+  }
+}
+```
+
+<Callout title="A retriever that returned bodies would undo the design">
+  The page content here is the summary, because a search result is a plan for the next read rather
+  than the read itself. Stuffing eight bodies into the prompt is the cost the manifest exists to
+  avoid. Chain the second hop instead: `get` the ids the model chose, with `offset: pos` and a
+  `limit` of about 2,000, and pay for the passage rather than the documents.
+</Callout>
+
+### Python
+
+There is no Python client, so Python reaches the store over MCP or over
+[HTTP](/docs/guides/http-api). The adapters take the same command:
+
+```python
+from langchain_mcp_adapters.client import MultiServerMCPClient
+
+client = MultiServerMCPClient({
+    "langonrock": {
+        "transport": "stdio",
+        "command": "langonrock",
+        "args": ["mcp", "okf+unix:///tmp/okf.sock?tenant=acme"],
+    }
+})
+
+tools = await client.get_tools()
+```
+
+Two hand-written tools are four endpoints and no dependency:
+
+```python
+import httpx
+from langchain_core.tools import tool
+
+store = httpx.Client(
+    base_url="https://knowledge.internal:7777/v1/acme",
+    headers={"authorization": f"Bearer {token}"},
+)
+
+@tool
+def knowledge_search(query: str, k: int = 8) -> str:
+    """Rank concepts against a query. Returns manifest rows, never bodies."""
+    return store.post("/search", json={"q": query, "k": k}).text
+
+@tool
+def knowledge_get(ids: list[str], section: str | None = None, offset: int | None = None,
+                  limit: int | None = None) -> dict:
+    """Fetch concepts by id, batched. Prefer a section or a window over the whole document."""
+    body = {"ids": ids, "section": section, "offset": offset, "limit": limit}
+    return store.post("/get", json={k: v for k, v in body.items() if v is not None}).json()
+```
+
+Revalidation is yours to do here: hold the manifest's `ETag` and send `If-None-Match`, or call
+`/snapshot` and compare the digest.
+
+## Which one
+
+Take MCP when the framework is the client, the machine can run a binary, and you want writes for
+free. Take native tools when you own the prompt.
+
+The four read tools measure 1,122 tokens of schema, and `write` and `delete` add 619 more, in every
+session whether or not anyone asks about knowledge. Two definitions you wrote yourself cost a
+fraction of that, and they are the only version that can put the manifest where the cache is.
