@@ -152,6 +152,12 @@ Each direct search hit ends in `pos`, the offset of the passage densest in the q
 follow it with `get <id> --offset <pos> --limit 2000` to read the passage instead of the document.
 A query that names a concept by id or exact title reports it on an `# anchors:` line and ranks its
 link neighbourhood first.
+Linked rows and hits whose match is only in the manifest row show `-`.
+
+```sh
+langonrock query "okf+unix:///tmp/okf.sock?tenant=acme" search order grain --k 5
+langonrock query "okf+http://127.0.0.1:7777?token=$TOKEN" manifest --bundle sales
+```
 
 ### The graph
 
@@ -173,12 +179,6 @@ concepts that do not exist yet. Types are the headings the links sit under. `--f
 same graph as the library's `graph()`, nodes with links in both directions and a cluster label
 each; `--format dot | dot -Tsvg` draws it, one subgraph per bundle and one colour per cluster, so
 you can see whether the clusters the links imply agree with the folders you chose.
-Linked rows and hits whose match is only in the manifest row show `-`.
-
-```sh
-langonrock query "okf+unix:///tmp/okf.sock?tenant=acme" search order grain --k 5
-langonrock query "okf+http://127.0.0.1:7777?token=$TOKEN" manifest --bundle sales
-```
 
 ### Write verbs
 
