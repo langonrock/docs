@@ -1,0 +1,197 @@
+---
+title: Durability and failures
+description: What a returned commit guarantees, how each failure surfaces, and how to verify and repair a tenant.
+icon: HardDrive
+---
+
+A normal return from a commit means the commit is durable: every file it needs is on disk and
+`HEAD` names it. Everything on this page is about the ways a commit can fail to return normally,
+and what the engine does so that none of them loses an acknowledged write in silence.
+
+## How a commit becomes durable
+
+There is no write-ahead log and nothing is replayed when a tenant opens. Every commit writes new,
+immutable files named by the sha256 of their bytes, and `HEAD` is the single file that decides
+which revision is committed. Replacing it is the commit.
+
+- The candidate snapshot, source archive and revision descriptor are prepared in a private
+  `staging/` directory, outside any lock. Readers never see staging.
+- The writer takes the tenant's `writer.lock`, re-reads `HEAD`, and checks the base revision and
+  every precondition again.
+- Each artifact is written, flushed, renamed to its content-addressed name, and its directory
+  flushed. An artifact that already exists is checked against the new bytes and reused; one that
+  differs is reported as corruption rather than overwritten.
+- The new `HEAD` is written to a staging file behind an ordering barrier, atomically replaces the
+  old one, and is flushed before the call returns.
+- The lock is released. A request that starts after the return reads the new revision; requests
+  already running keep the revision they pinned.
+
+The C adapter supplies the operating-system half of that:
+
+|                       | macOS                                | Linux   | Windows                                         |
+| --------------------- | ------------------------------------ | ------- | ----------------------------------------------- |
+| Locks                 | `flock`                              | `flock` | `LockFileEx`                                    |
+| File flush            | `F_FULLFSYNC`                        | `fsync` | `FlushFileBuffers`                              |
+| Barrier before `HEAD` | `F_BARRIERFSYNC`, else `F_FULLFSYNC` | `fsync` | `FlushFileBuffers`                              |
+| Replacing `HEAD`      | `rename`                             | `rename` | `MoveFileExW`, replace-existing and write-through |
+
+## How each failure surfaces
+
+| Failure                                   | Library                                    | HTTP                                            |
+| ----------------------------------------- | ------------------------------------------ | ----------------------------------------------- |
+| A precondition no longer holds            | `ConflictError`, `code: "CONFLICT"`        | 409 JSON; 412 on single-document `PUT`/`DELETE` |
+| The tenant has not been migrated          | `code: "LEGACY_TENANT"`                    | 409 JSON                                        |
+| The tenant has no database yet            | `tenant has no source directory or native database; …` | 409, plain text                     |
+| Another writer held the lock for 5 s      | `database busy: another process holds the lock` | 404, plain text                             |
+| The outcome after replacing `HEAD` is unknown | `IndeterminateCommitError`, `code: "INDETERMINATE_COMMIT"`, `revision` | 503 JSON with `revision`  |
+| Stored data fails its checks              | an `Error` starting `database corruption:` | 404, plain text                                 |
+| The request is malformed                  | an `Error` naming the problem              | 400, plain text                                 |
+
+The command line prints the same messages on stderr and exits 1; MCP returns them as tool errors.
+`ConflictError` and `IndeterminateCommitError` are exported from `langonrock`. The fetch-only client
+in `langonrock/client` throws a plain `Error` that carries the same `code`, and `revision` where
+there is one, copied from the server's JSON body. Branch on `error.code` and the same code works
+against both.
+
+<Callout type="warn" title="Busy and corruption answer 404 over HTTP">
+  The server maps every error it does not classify to a 404 with the message as the body. A lock
+  timeout or a corruption report reaching an HTTP client looks like a missing route until you read
+  the body.
+</Callout>
+
+### An indeterminate commit
+
+Once `HEAD` may have been replaced, an error is no longer proof that nothing happened. The engine
+says so instead of guessing:
+
+```
+commit outcome is indeterminate; inspect revision <revision> before retrying
+```
+
+The error carries the revision it was publishing. Read the history: if that revision is current, or
+anywhere in the history, the commit happened and retrying would apply it twice. If it is absent,
+the commit did not happen. Never retry blindly; the engine never retries for you.
+
+### An interrupted writer
+
+A writer killed before replacing `HEAD` leaves the previous revision committed, untouched. What it
+had written so far sits in `staging/` or as files nothing references, which no reader ever sees and
+the next [collection](/docs/database/maintenance) removes. A process that dies releases its lock
+through the operating system, so the next writer does not wait for a timeout.
+
+In the benchmark that kills a writer after staging its new `HEAD`, a fresh process reopened the
+tenant and served one `get` in 3.5, 9.8 and 27.0 ms at 500, 5,000 and 20,000 concepts, on an Apple
+M1 Pro under Bun 1.3.12, and found the last acknowledged revision intact.
+
+## Corruption fails closed
+
+Every record frames its metadata with a sha256, every immutable file is named by the sha256 of its
+bytes, and every compressed body carries a checksum. A damaged `HEAD` or a committed file that is
+missing is an error on the next read, never a quiet fallback to an older revision that would lose
+acknowledged writes:
+
+```sh
+langonrock manifest --data ./data --tenant acme
+```
+
+```
+database corruption: metadata checksum mismatch
+```
+
+## verify
+
+`verify` checks a tenant independently of every cache: it reads `HEAD`, walks each retained
+revision, and checks each one's snapshot digest, source reconstruction and metadata. It prints one
+JSON object and exits 1 when anything fails.
+
+```sh
+langonrock verify --data ./data --tenant acme | jq
+```
+
+```json
+{
+  "ok": true,
+  "headHash": "6e8800ac883efc977ac044808be4286b9e45f060cb24b54c1f1d776e3ce69f4b",
+  "verifiedRevisions": [
+    "496744db3e3c76ce67cb8ba028b15fc6558ed3f3a5f3cd1b7827c628df0aab57",
+    "984e1dcb03ea2403acd84528949187909ef0e327504f03d92e00b199ba9dc9c9",
+    "7a4b86c1a08808561bab370254e5ce68157797da2e56326a3406a4b6b586075c"
+  ],
+  "issues": []
+}
+```
+
+On the tenant with the damaged `HEAD` above:
+
+```json
+{
+  "ok": false,
+  "headHash": "874cef2a0963a844fd4072a847da9253ee8c0cbf3c5401ceef277ca7a3442bfa",
+  "verifiedRevisions": [],
+  "issues": [
+    {
+      "artifact": "HEAD/history",
+      "message": "Error: database corruption: metadata checksum mismatch"
+    }
+  ]
+}
+```
+
+`headHash` is the hash of the `HEAD` file as it is now, damaged or not. Repair needs it.
+
+## repair
+
+Repair never runs on its own. It makes a revision you chose the tenant's only retained root, and it
+needs two things from you: a revision that verifies, and the exact `headHash` that `verify`
+reported, so that a `HEAD` that changed since you looked is never replaced.
+
+Revision descriptors live in `revisions/`, named `<revision>.rev`. Verify a candidate on its own:
+
+```sh
+langonrock verify 73bfbab54fa2fad2c9ec892151ee4287073bed47cb26cfde21820aef96431eaa \
+  --data ./data --tenant acme | jq -c '{ok, verifiedRevisions}'
+```
+
+```
+{"ok":true,"verifiedRevisions":["73bfbab54fa2fad2c9ec892151ee4287073bed47cb26cfde21820aef96431eaa"]}
+```
+
+Then repair it, naming the `HEAD` you are replacing:
+
+```sh
+langonrock repair 73bfbab54fa2fad2c9ec892151ee4287073bed47cb26cfde21820aef96431eaa \
+  --expected-head 874cef2a0963a844fd4072a847da9253ee8c0cbf3c5401ceef277ca7a3442bfa \
+  --data ./data --tenant acme | jq '{revision, concepts}'
+```
+
+```json
+{
+  "revision": "73bfbab54fa2fad2c9ec892151ee4287073bed47cb26cfde21820aef96431eaa",
+  "concepts": 7
+}
+```
+
+A stale `--expected-head` is refused with
+`head changed since verification; run verify again before repair`. Pass `--expected-head missing`
+only when there is no `HEAD` at all.
+
+Repair keeps the `HEAD` it replaced in `recovery/<hash>.head`, verifies the candidate again under
+the lock, and publishes a `HEAD` that retains that one revision and no import baselines. History
+then holds that revision alone; every other revision is left on disk for the next collection to
+remove. A revision that verifies is intact; that does not prove it was the last one committed,
+which is why choosing it is left to you. Copy the tenant directory before repairing.
+
+## What is not guaranteed
+
+- **Power loss.** The recovery tests kill processes. They do not cut power, and whether a flush
+  survives that depends on the filesystem and the hardware honouring it.
+- **Linux and Windows.** The primitives above are implemented for both, and the test suite passes
+  in CI on Linux but not yet on Windows. The engine's crash and performance verification was done
+  on macOS arm64, and execution on Linux and Windows is still an open release check.
+- **Network filesystems.** Locks and flushes over NFS, SMB and similar are not covered.
+- **Replication** and **transactions across tenants.** Each tenant commits on its own, on one
+  machine.
+
+Never delete `writer.lock` or `retention.lock` while the store is in use. They are persistent files
+that the operating system locks; removing one lets a second process take a lock the first still
+holds.

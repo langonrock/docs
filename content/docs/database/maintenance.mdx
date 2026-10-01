@@ -1,0 +1,144 @@
+---
+title: Collection and backups
+description: Bound history and disk with gc, back a tenant up consistently, and restore a backup safely.
+icon: Archive
+---
+
+## History costs disk until you collect it
+
+Every revision points at a complete snapshot and a complete source archive. A commit reuses the
+compressed bodies of documents it did not change inside its new files, but it still writes new
+files, so disk grows with every commit until collection removes the revisions you no longer keep.
+
+Ten identical single-document edits with ten versions kept, against the engine this one replaced,
+total allocated bytes including the original folder, on an Apple M1 Pro under Bun 1.3.12:
+
+| Concepts | Previous engine | This engine |
+| -------: | --------------: | ----------: |
+|      500 |          7.7 MB |     13.0 MB |
+|    5,000 |         76.4 MB |    129.0 MB |
+|   20,000 |        306.7 MB |    518.9 MB |
+
+At 20,000 concepts that is about 69 percent more in total, and about 96 percent more for the store
+alone, 222.0 MB against 434.2 MB. The engine keeps the exact sources of every retained revision,
+frontmatter and navigation documents included, where the old one kept compiled snapshots, and it
+compresses at zstd level 1. That is what history and lossless export cost, and it is the largest
+regression the engine has. [Engine benchmarks](/docs/architecture/engine-benchmarks) has every row.
+
+## gc
+
+```sh
+langonrock gc --data ./data --tenant acme --keep 10 --dry-run
+langonrock gc --data ./data --tenant acme --keep 10
+```
+
+`gc` keeps the newest `--keep` committed revisions, 10 by default, and everything they reference.
+It also keeps the import baselines of the folders the tenant tracks, and, on a migrated tenant, the
+legacy snapshot `current` points at. Everything else goes: older snapshots, source archives and
+revision descriptors, import maps nothing uses, and the abandoned staging of interrupted writers.
+Without `--tenant` it collects every tenant in the data directory.
+
+```sh
+langonrock gc --data ./data --tenant acme --keep 2
+```
+
+```
+acme: removed 9 snapshots and 0 partials, kept 2, freed 10573 bytes
+```
+
+That tenant had five revisions. The first count covers every artifact removed, snapshots, source
+archives and revision descriptors alike, three for each of the three revisions it dropped, and
+partials are abandoned staging. `--dry-run` prints the same line with `would remove` and deletes
+nothing.
+
+Collection is ordered so that a crash at any point is safe. It verifies every revision it keeps,
+durably publishes the new retention boundary in `HEAD`, and only then deletes. An interrupted
+collection leaves files it meant to remove, never a kept revision missing one. A file it cannot
+delete is reported and left for the next run.
+
+<Callout type="warn" title="A collected revision cannot be restored">
+  History ends at the retention boundary, and restore reaches as far back as history does. Asking
+  for a pruned revision is refused with `revision is not in retained committed history`. Choose
+  `--keep` for the undo you want before you need it.
+</Callout>
+
+### While it runs
+
+`gc` holds the writer lock and the retention lock exclusively, so commits wait for it, and so do
+readers that open while it runs, for up to five seconds before failing with `database busy`.
+Readers that were already open keep reading the revision they pinned, because they hold its
+snapshot file open. Verifying and collecting with ten versions kept took 73.6, 531.2 and 1,995.6 ms
+at 500, 5,000 and 20,000 concepts on the machine above.
+
+### Run it on a schedule
+
+Collection bounds more than disk. Once a tenant has been collected, `HEAD` lists the revisions it
+retains and every commit adds one. `HEAD` is capped at 1 MiB, and a commit that would push it past
+that is refused with `head exceeds size limit; run gc to bound history`. A periodic `gc` keeps both
+the disk and `HEAD` bounded.
+
+### Legacy tenants
+
+On a tenant that has not been [migrated](/docs/database/migration), `gc` runs the collector earlier
+versions used: it keeps `current` plus the newest `--keep` snapshots, never touches anything newer
+than `--grace`, an hour by default, and exits non-zero if `current` points at a snapshot that is
+missing or truncated rather than deleting the evidence. `--grace` has no effect on a tenant the
+engine owns, which never relies on age.
+
+## Backups
+
+A backup is the complete tenant directory, taken while nothing is writing to it:
+
+- Stop writers and collection, then copy `tenants/<tenant>/` whole. A tar is enough.
+- Or take a filesystem snapshot that captures every file at the same instant.
+
+A copy made file by file while a commit publishes can capture a `HEAD` that names files the copy
+does not have, and one made during collection can catch files on their way out. Such a copy can
+fail `verify`, and running `verify` on a restored copy is how you find out.
+
+```
+tenants/acme/
+  HEAD                    committed revision, checksums, retained revisions, import baselines
+  snapshots/<sha256>.tnt  compiled read models
+  sources/<sha256>.src    exact sources, reusing the bodies in the snapshots
+  revisions/<sha256>.rev  one descriptor per commit
+  imports/<sha256>.imp    baselines of the folders the tenant imports
+  staging/                unpublished work, never part of a revision
+  writer.lock
+  retention.lock
+```
+
+The data directory also holds `tokens.json`, the bearer tokens with their grants, and
+`sources.json`, if you map folders. Back them up with the tenants, and keep the copy of
+`tokens.json` as private as the original. [Storage](/docs/architecture/storage) describes every
+format.
+
+<Callout type="warn" title="A snapshot file is not a backup">
+  A `.tnt` holds the compiled read model only. The exact Markdown, frontmatter and navigation
+  documents are in the source archives, which reuse the snapshot's bodies, so neither file is
+  complete without the other and `HEAD`.
+</Callout>
+
+### Restoring a backup
+
+Copy the backup into a separate directory, run `verify` against it, and only then point a server or
+a connection at it:
+
+```sh
+langonrock verify --data /restore/data --tenant acme
+```
+
+A restored tenant is a tenant like any other: it takes commits, and its history is the history it
+had when it was copied. To roll back to a state that is still in that history, use
+[restore](/docs/database/history) instead; it needs no copy at all.
+
+### A portable copy
+
+```sh
+langonrock export ./acme-markdown --data ./data --tenant acme
+```
+
+`export` writes the current documents as plain Markdown, byte for byte, readable without
+langonrock and importable into a fresh tenant. It carries no history and no compiled data, so it
+complements a directory backup rather than replacing it. See
+[Import, watch and export](/docs/database/folders).

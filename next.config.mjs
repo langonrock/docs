@@ -10,10 +10,17 @@ const agentLinks = [
   '</.well-known/agent-skills/index.json>; rel="describedby"; type="application/json"',
 ].join(', ');
 
+const movedPages = [['/docs/guides/backups', '/docs/database/maintenance']];
+
 /** @type {import('next').NextConfig} */
 const config = {
   reactStrictMode: true,
   headers: async () => [{ source: '/', headers: [{ key: 'Link', value: agentLinks }] }],
+  redirects: async () =>
+    movedPages.flatMap(([source, destination]) => [
+      { source, destination, permanent: true },
+      { source: `${source}.md`, destination: `${destination}.md`, permanent: true },
+    ]),
 };
 
 export default withMDX(config);
