@@ -115,9 +115,12 @@ export function ReadPath() {
         <p className="lr-prose lr-note mt-14">
           Search takes the same path. Retrieval is BM25 over each concept’s names, manifest row and
           body, plus a one-hop expansion across the link graph, capped so that a hub concept cannot
-          drag in half the manifest. There is no model anywhere in it, so the same query returns
-          the same set tomorrow — and it finds the right concept at least as often as running the
-          same ranker over the raw files. A query returns in 1.8 ms at 20,000 concepts.
+          drag in half the manifest. A query that names a concept anchors there: a walk over its
+          links is fused with the ranking, so what surrounds the thing named outranks what merely
+          shares its words. There is no model anywhere in it, so the same query returns the same set
+          tomorrow — and it finds the right concept more often than running the same ranker over
+          the raw files. A query returns in about 2 ms at 20,000 concepts, 4 ms when it names a
+          concept and walks its links.
         </p>
       </div>
     </section>
