@@ -15,3 +15,9 @@ export const gitConfig = {
   repo: 'langonrock',
   branch: 'main',
 };
+
+export const docsGitConfig = {
+  user: 'langonrock',
+  repo: 'docs',
+  branch: 'main',
+};
