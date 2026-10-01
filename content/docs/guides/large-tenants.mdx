@@ -50,6 +50,12 @@ definition lives, and finding it costs no model call.
 
 The expansion is capped at `k` and ranked by how many hits point at a target.
 
+A query that names a concept anchors on it: a walk over the link graph from the named concepts is
+fused with the ranking, so its neighbourhood comes first. On a large tenant this is what makes a
+named question work without the manifest — at 20,000 concepts, where the manifest is 836k tokens
+and cannot be in the prompt, named queries go from 70 percent in the top eight to 75, and mean
+reciprocal rank from 0.46 to 0.70, for four milliseconds and one extra line in the result.
+
 <Callout type="warn" title="The cap is not optional">
   The first version expanded every link of every hit. On the Stack Overflow sample one dataset row
   links to sixteen tables, so eight hits became twenty-six rows, which is most of the manifest.

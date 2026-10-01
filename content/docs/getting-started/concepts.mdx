@@ -122,11 +122,20 @@ These are skipped rather than resolved:
 Anchors and query strings are stripped before resolution, so `[orders](./orders.md#schema)` links
 to `orders`.
 
-A target that resolves to no concept becomes a diagnostic:
+A target that resolves to no concept becomes a diagnostic, and a `dangling` line in `graph`: the
+concept is cited but not yet written, which on a growing corpus is a to-do list rather than an
+error.
 
 ```
 warn: tables/orders.md: unresolved link "./custmers.md"
 ```
+
+The heading a link sits under is the type of the edge. `[customers](./customers.md)` under
+`# Joins` is a `joins` edge, under `# Sources` a `sources` edge, and before the first heading a
+`body` edge. The manifest row carries the target only; the type lives in the snapshot and is what
+`graph` reports, so a bundle whose authors never thought about relationship types still gets them
+from the structure they gave their own documents. And "what depends on this concept" is a question
+for `graph`, not for grep: it holds the links in both directions.
 
 Link ids are sorted and deduplicated in the row, which is part of what keeps the manifest
 byte-identical across rebuilds.

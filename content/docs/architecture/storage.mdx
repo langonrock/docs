@@ -76,12 +76,18 @@ them.
 ```
 [header]    magic "TNT1", version, section offsets   (32 bytes)
 [manifest]  TSV, uncompressed, contiguous
-[dir]       id -> (offset, len, section_offsets)
+[dir]       id -> (offset, len, section_offsets, edges by type, dangling)
 [blobs]     zstd, one per concept
 ```
 
 The header is 32 bytes: four bytes of magic, then seven little-endian `uint32` values giving the
 version and the offset and length of each of the three sections.
+
+The directory also carries each concept's link targets grouped by the section they were linked
+from, and the targets that resolved to nothing. That is what `graph` reads, and it is stored
+grouped and unpacked on first use because the directory is parsed on every cold open: the flat
+form cost that open a third more at twenty thousand concepts, the grouped form 3.6 ms and 5.5
+percent of disk.
 
 The manifest sits contiguous and uncompressed on purpose. Slice the byte range and send it straight
 to the prompt. No parsing, no decompression, no allocation. It is the read that happens every turn,

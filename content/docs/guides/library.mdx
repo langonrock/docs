@@ -28,6 +28,7 @@ interface Connection {
   manifest: (bundle?: string) => Promise<string>;
   get: (ids: string[], options?: GetOptions) => Promise<Map<string, ConceptSlice>>;
   search: (query: string, options?: SearchOptions) => Promise<string>;
+  graph: () => Promise<Graph>;
   listSource: () => Promise<SourceEntry[]>;
   readSource: (bundle: string, path: string) => Promise<SourceFile | undefined>;
   writeSource: (bundle: string, path: string, content: string, replaces?: string) => Promise<string>;
@@ -77,6 +78,27 @@ interface SearchOptions {
   k?: number;      // ranked matches before expansion, default 8
   expand?: boolean; // one-hop link expansion, default true
   bundle?: string;  // rank and expand within one bundle
+}
+```
+
+There is no option for the anchor. A query that names a concept by id or exact title anchors on it
+and the result says so on an `# anchors:` line; a query that names nothing ranks exactly as it did.
+
+```ts
+interface Graph {
+  nodes: { id: string; bundle: string; out: string[]; in: string[]; cluster: number }[];
+  edges: { from: string; to: string; via: string }[]; // via is the section the link sits in
+  summary: {
+    concepts: number;
+    edges: number;
+    density: number;
+    types: Record<string, number>;
+    orphans: string[];                        // nothing links to these
+    dangling: { from: string; target: string }[]; // links to concepts not yet written
+    hubs: { id: string; in: number; out: number }[];
+    components: { count: number; largest: number };
+    clusters: { count: number; largest: number; modularity: number };
+  };
 }
 
 interface SourceEntry {

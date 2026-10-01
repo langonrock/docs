@@ -30,7 +30,10 @@ timestamp: 2026-05-28T14:30:00Z
 ---
 ```
 
-The body is ordinary Markdown. Links between files form the knowledge graph.
+The body is ordinary Markdown. Links between files form the knowledge graph. The spec leaves the
+_kind_ of a relationship to the prose around the link rather than the link itself, and lists typed
+relations as out of scope; the compiler reads the kind off the heading above that prose, so a link
+under `# Joins` is a `joins` edge with no convention imposed on the author.
 
 ```
 sales/

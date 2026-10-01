@@ -21,6 +21,7 @@ Running with no arguments prints the usage and exits 1. `--help` prints the same
 | `watch <dir>`    | Keep a tenant in sync with a folder                   |
 | `manifest`       | Print the stored manifest                             |
 | `get <id...>`    | Fetch concepts by id                                  |
+| `graph`          | Report the link graph's shape                         |
 | `serve`          | Run the daemon                                        |
 | `token`          | Mint a token and record its grant                     |
 | `query <dsn> …`  | Any read or write verb over any connection string     |
@@ -145,9 +146,33 @@ remote server are driven the same way.
 | `snapshot`              | The current digest                                   |
 | `search <words...>`     | Ranked manifest rows plus a `pos` column, `--k` and `--bundle` apply |
 | `get <id...>`           | Concepts; `--section`, `--offset`, `--limit`, `--find` apply |
+| `graph`                 | The link graph's shape; `--format text`, `json` or `dot` |
 
 Each direct search hit ends in `pos`, the offset of the passage densest in the query's words —
 follow it with `get <id> --offset <pos> --limit 2000` to read the passage instead of the document.
+A query that names a concept by id or exact title reports it on an `# anchors:` line and ranks its
+link neighbourhood first.
+
+### The graph
+
+`graph` works on the store directly with `--data` and `--tenant`, or over any connection string as
+`query <dsn> graph`. Over the quickstart fixture:
+
+```
+concepts 6, edges 4, density 0.1333
+types: body 4
+components 4 (largest 3)
+clusters 4 (largest 3, modularity 0)
+hubs (in/out): tables/orders 2/2 customers 1/1 metrics/orders 1/1
+orphans 3: messy orders_db weekly_active_users
+dangling 1: tables/orders -> ./payments.md
+```
+
+Orphans are concepts nothing links to, reachable by search alone. Dangling links point at
+concepts that do not exist yet. Types are the headings the links sit under. `--format json` is the
+same graph as the library's `graph()`, nodes with links in both directions and a cluster label
+each; `--format dot | dot -Tsvg` draws it, one subgraph per bundle and one colour per cluster, so
+you can see whether the clusters the links imply agree with the folders you chose.
 Linked rows and hits whose match is only in the manifest row show `-`.
 
 ```sh

@@ -30,7 +30,7 @@ claude mcp add langonrock -- langonrock mcp "okf+unix:///tmp/okf.sock?tenant=acm
 | Tool       | Input                                             | Output                                               |
 | ---------- | ------------------------------------------------- | ---------------------------------------------------- |
 | `manifest` | `bundle?`                                         | The manifest as TSV                                  |
-| `search`   | `query`, `k?`, `bundle?`                          | Ranked manifest rows plus a `pos` cell, never bodies |
+| `search`   | `query`, `k?`, `bundle?`                          | Ranked manifest rows plus a `pos` cell, never bodies; an `# anchors:` line when the query names a concept |
 | `get`      | `ids[]`, `section?`, `offset?`, `limit?`, `find?` | Framed slices, one `@@ id` block each                |
 | `snapshot` | none                                              | The current digest                                   |
 | `write`    | `bundle`, `path`, `content`, `replaces?`          | The new digest, plus that file's compiler warnings   |
@@ -51,9 +51,13 @@ they only match its manifest row. The follow-up is `get` with `{offset: pos, lim
 located passage instead of a capped document, for descriptive questions `find` cannot anchor.
 
 Six verbs, and no more, because every tool definition costs tokens in the client's system prompt.
-The four read tools measure 1,122, `write` adds 413 and `delete` 206, so a session that never
-touches knowledge still pays 1,741. `manifest` and `search` narrow, `get` fetches, `snapshot`
-invalidates, `write` persists, `delete` retracts. Nothing else earned a place.
+The four read tools measure 1,182, `write` adds 413 and `delete` 206, so a session that never
+touches knowledge still pays 1,801. `manifest` and `search` narrow, `get` fetches, `snapshot`
+invalidates, `write` persists, `delete` retracts. Nothing else earned a place — the link graph the
+store derives is reachable from the library and the HTTP API, and over MCP it lives inside
+`search`: naming a concept anchors the ranking on its neighbourhood, which is the sixty tokens the
+`search` description grew by and [why there is no seventh
+tool](/docs/architecture/agent-api#the-graph-earned-no-verb).
 
 ## The manifest description carries the tenant's own advice
 

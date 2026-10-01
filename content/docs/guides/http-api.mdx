@@ -16,6 +16,7 @@ GET  /v1/{tenant}/manifest[?bundle=sales]  the manifest, ETag is the snapshot di
 GET  /v1/{tenant}/snapshot                 {"snapshot": "…", "concepts": n}
 POST /v1/{tenant}/get                      {"ids": [...], "section"?, "offset"?, "limit"?, "find"?}
 POST /v1/{tenant}/search                   {"q": "...", "k"?: n, "expand"?: false, "bundle"?: "..."}
+GET  /v1/{tenant}/graph                    {"nodes": [...], "edges": [...], "summary": {...}}
 ```
 
 The tenant segment is optional when a token identifies one, so `/v1/manifest` and
@@ -73,7 +74,15 @@ program.
 `search` returns manifest rows and never bodies. Each direct hit ends in a `pos` cell — the offset
 where the query's words cluster densest in the body, `-` when they only match the row — so the
 follow-up `get` can be `{"offset": pos, "limit": 2000}` instead of the whole document. Narrow with
-`search`, then fetch what you chose with `get`.
+`search`, then fetch what you chose with `get`. A query that names a concept by id or exact title
+anchors the ranking on its link neighbourhood and says so on an `# anchors:` line; there is no
+parameter for it.
+
+`graph` returns the whole link graph of the tenant as JSON — every node with its links in both
+directions and a cluster label, every edge typed by the section its link sits in, and a summary
+with orphans, dangling links, hubs, components and clusters. It is derived from the snapshot and
+memoised per snapshot, so the first call per snapshot pays the build (159 ms at 20,000 concepts,
+clustering included) and later ones do not.
 
 ## Search parameters
 
