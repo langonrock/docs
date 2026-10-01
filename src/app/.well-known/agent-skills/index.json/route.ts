@@ -10,7 +10,7 @@ const skills = [
     name: 'langonrock',
     type: 'skill-md',
     description:
-      "Read and write an Open Knowledge Format store through langonrock's six MCP tools, and set the server up for Claude Code or Cursor.",
+      'Read, write and commit to a langonrock document database through its MCP tools, six by default and nine with --database-tools, and set the server up for Claude Code or Cursor.',
     path: 'agent-skills/langonrock/SKILL.md',
   },
 ];
