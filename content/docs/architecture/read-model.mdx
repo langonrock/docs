@@ -152,6 +152,36 @@ Search that does not narrow is worse than reading the manifest, because it costs
 learn nothing. Expansion is now capped at `k` and ranked by how many hits point at a target, which
 took `--k 3` from 85% of the manifest down to 31%.
 
+### Anchor on the named concept
+
+A question that names `orders_b1` contains that id. The tokenizer above splits it into `orders`
+and `b1` and loses it, which is why named queries sat at 70 percent while describing ones sat at
+95. The anchor does not lose it: a query token equal to an id, or a run of words equal to a
+frontmatter title, seeds a personalized PageRank over the undirected link graph — restart 0.5,
+twenty rounds, deterministic — and the walk's order is fused with the lexical one by reciprocal
+rank. The named concept and its neighbours come first; the rest of the query decides the tie. A
+name two concepts share is dropped rather than guessed, so an anchor is never wrong, only absent.
+
+With no anchor the walk has no seed and nothing changes, byte for byte. That is what keeps a
+describing query exactly as cheap and exactly as ranked as before.
+
+The fusion constant is 5, not the textbook 60. With a dozen rows per list, 60 scores every rank
+almost the same and the walk's order is lost, and the relation harness showed it:
+
+| RRF constant | Two-hop lineage recall | Named hit rate |
+| -----------: | ---------------------: | -------------: |
+|           60 |                    33% |            70% |
+|           20 |                    33% |            80% |
+|           10 |                    61% |            80% |
+|            5 |                    89% |            80% |
+|            2 |                    89% |            80% |
+
+An anchored query runs one to four milliseconds instead of a third of one, which is the walk, and
+adds one `# anchors:` line to the result saying what was recognised. Described queries name
+nothing and stay at 95 percent; their mean reciprocal rank moves from 0.40 to 0.39 on the catalogue
+and from 0.64 to 0.61 on the recipes, where a title word inside a description occasionally anchors
+somewhere else. Every other profile is unchanged to the digit.
+
 ### The index is not persisted
 
 Measured build times: 22 ms at 500 concepts, 193 ms at 5,000, 674 ms at 20,000. The build streams
@@ -165,7 +195,7 @@ code to get wrong — and `serve` rebuilds it right after each sync, so the firs
 save does not pay it either.
 
 Query time is 2.13 ms at 20,000 concepts, most of it the `pos` scan over the top hits' bodies
-rather than the ranking. There was nothing to buy.
+rather than the ranking, and 4.3 ms when the query anchors and walks. There was nothing to buy.
 
 ## Open questions
 
@@ -177,7 +207,8 @@ Whether per-field weighting was worth it is no longer open: names weigh four, ot
 two, and the sweep behind each number is recorded next to the constant. Two candidate upgrades
 were measured and rejected on the same harness — expanding the link graph inbound as well as
 outbound (no gain on any profile) and light plural stemming (a ten-point win on the catalogue paid
-for by a five-point loss on the recipes).
+for by a five-point loss on the recipes). What replaced the inbound expansion is the anchor: the
+same graph, walked from the concept the query names rather than from every hit.
 
 <Callout title="DESIGN.md is behind the code here">
   It still lists field weighting as undecided. The sweeps settled it: `FIELD_WEIGHT = 2` and

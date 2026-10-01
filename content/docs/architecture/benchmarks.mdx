@@ -105,9 +105,16 @@ on 500 concepts.
 | ------------------------------------------ | -------: | -------: |
 | OKF BM25 over raw Markdown                 |      70% |     0.43 |
 | langonrock BM25                            |      70% |     0.43 |
-| langonrock BM25 plus the one-hop expansion |  **75%** | **0.44** |
+| langonrock BM25 plus the one-hop expansion |      75% |     0.44 |
+| langonrock anchored on the named concept   |      80% |     0.72 |
+| anchored, plus the one-hop expansion       |  **85%** | **0.72** |
 
-Queries that describe a concept rather than name it land at 95% on both sides.
+Queries that describe a concept rather than name it land at 95% on both sides. The anchor is the
+largest single gain in the table, and it comes from the queries being what they are: a question
+that names `orders_b1` contains that id, BM25 tokenises it into `orders` and `b1` and loses it,
+and the anchor does not. [How it ranks](/docs/architecture/read-model#anchor-on-the-named-concept),
+including the constant that had to be swept and the two profiles where describing queries paid a
+few hundredths of reciprocal rank for it.
 
 <Callout title="Compiling no longer costs ranking">
   It used to. The frontmatter the compiler strips repeated the concept id in its `resource` and
@@ -116,6 +123,81 @@ Queries that describe a concept rather than name it land at 95% on both sides.
   above the other cells — recovered all of it. The title rides in the snapshot directory, never in
   a manifest row, so this costs zero prompt tokens.
 </Callout>
+
+## The graph
+
+`graph` derives backlinks, orphans, dangling links, hubs, components and clusters from the
+snapshot. None of it touches the manifest, so the agent's cost is unchanged by construction: the
+manifest, the sessions and the retrieval rows above are byte-for-byte the same with the graph in
+the store as without it. What changed is the snapshot, which now carries each concept's typed
+edges and dangling links in its directory, and the cold open, which parses that directory.
+
+| Concepts                               |             500 |             5,000 |                20,000 |
+| -------------------------------------- | --------------: | ----------------: | --------------------: |
+| Whole manifest, tokens                 | 20,549 → 20,549 | 205,851 → 205,851 |     835,922 → 835,922 |
+| Session, manifest strategy, tokens     | 64,355 → 64,355 | 546,080 → 546,080 | 2,184,317 → 2,184,317 |
+| Snapshot on disk                       |  0.52 → 0.55 MB |      5.3 → 5.5 MB |        21.2 → 22.3 MB |
+| Open a snapshot cold, ms               |     0.68 → 0.74 |         5.4 → 6.0 |           21.4 → 25.0 |
+| Build the graph, clusters included, ms |             4.9 |                37 |                   159 |
+
+The snapshot grows five and a half percent, all of it the typed edges in the directory, and the
+cold open pays for parsing them: three and a half milliseconds at twenty thousand concepts. The
+build is timed on its own because it is what a first `graph` call per snapshot pays, Louvain
+included, and it is never on the agent's read path.
+
+What the same corpora say when asked for their shape, with the edge types the compiler read off
+the authors' own headings:
+
+| Profile     | Concepts | Edges | Types                              | Orphans | Components | Clusters | Top hub, in/out   |
+| ----------- | -------: | ----: | ---------------------------------- | ------: | ---------: | -------: | ----------------- |
+| `reference` |      500 |   875 | `joins` 750, `definition` 125      |     125 |          1 |       10 | `campaigns` 4/2   |
+| `spec`      |       28 |   169 | 89, one per RFC section that cites |      15 |          2 |        4 | `rfc2119` 25/0    |
+| `handbook`  |    1,281 |   403 | `ingredients` 237, `mode` 166      |   1,183 |        976 |      979 | `recipe_105` 51/0 |
+| `scripture` |    1,189 |     0 | —                                  |   1,189 |      1,189 |    1,189 | —                 |
+| `book`      |      102 |     0 | —                                  |     102 |        102 |      102 | —                 |
+
+The 125 orphans in the reference catalogue are its 125 metrics: tables link to tables and metrics
+link to tables, nothing links to a metric, so a metric is reachable by search only. In the RFCs the
+hub is `rfc2119`, cited by 25 of the other 27 and citing none, and the types tell normative
+references from informative ones because the authors put them under different headings. Mrs
+Beeton's recipes are 92 percent orphans with one recipe, No. 105, that 51 others depend on. The
+Bible and the novels have no links, and the graph says so in one line rather than pretending
+otherwise.
+
+### Questions only the graph answers
+
+The twenty questions above are lookups, which is where a graph has nothing to add.
+`bun bench/graph.ts [bundles] [concepts per bundle]` asks twenty different ones over the same
+reference corpus: which concepts depend on a table, what is affected within two hops upstream if it
+is deprecated, and where a metric comes from and what its source joins with. The truth is read off
+the compiled graph, every path delivers the answer as manifest rows, and the billing model is the
+one used everywhere else.
+
+| Concepts                               |                500 |                5,000 |               20,000 |
+| -------------------------------------- | -----------------: | -------------------: | -------------------: |
+| Answer size, mean / max rows           |            3.7 / 9 |             4.3 / 15 |             4.3 / 15 |
+| OKF navigator, tokens / calls / recall | 318,510 / 43 / 69% | 1,132,954 / 44 / 59% | 3,750,647 / 43 / 60% |
+| Manifest in the prompt                 | 20,549 / 1 / 100%¹ |  205,851 / 1 / 100%¹ |  835,922 / 1 / 100%¹ |
+| Search first, lexical only             |  29,508 / 20 / 45% |    29,568 / 20 / 40% |    32,267 / 20 / 40% |
+| Search first, anchored                 |  28,943 / 20 / 68% |    29,857 / 20 / 72% |    32,538 / 20 / 72% |
+| Graph, one scoped read per question    |  6,091 / 20 / 100% |    6,875 / 20 / 100% |    6,875 / 20 / 100% |
+
+¹ Charged as if the agent computed a two-hop inbound closure over every row in its context without
+error, which is the optimistic convention every path gets. At twenty thousand concepts that is a
+bill for a manifest that does not fit in a context at all.
+
+The navigator follows links downstream perfectly and has no way upstream, because a Markdown link
+has no reverse: 100 percent on lineage, 12 to 28 percent on impact. Lexical search finds the
+concept the question names and little of what surrounds it. The anchored search is the same call at
+the same price with the walk fused in: lineage goes to 89 and 100 percent, direct dependents to 86,
+and impact to a third, where it stays because two hops upstream is up to fifteen concepts and a
+search returns eight rows plus eight linked ones. The last row is a measurement, not a feature: a
+scoped read is exact by construction and costs what its rows cost, and [nothing exposes it over
+MCP](/docs/architecture/agent-api#the-graph-earned-no-verb).
+
+Adding backlinks to the one-hop expansion itself was measured too, alone or with a tie-break by
+inbound degree, and changed the hit rate on none of the linked corpora while adding rows to every
+result. The expansion keeps the outgoing hop it had; what search gained is the anchor.
 
 ## Document shape
 
@@ -223,9 +305,11 @@ the largest single concept of each corpus:
 The four read definitions grew with the three new parameters: 833 tokens per session before, 1,062
 after. One window replacing one chapter repays the difference about twelve times over. The `pos`
 column's explanation, the per-tenant strategy advice and the `stale` status later put them at
-1,122; the same window-for-chapter trade repays those sixty tokens about sixty times over.
+1,122; the same window-for-chapter trade repays those sixty tokens about sixty times over. The
+sentence teaching a model that naming a concept anchors the search added sixty more, to 1,182, and
+buys ten points of hit rate on named queries.
 
-Adding the write side took the standing bill to 1,741: `write` costs 413, `delete` 206. That is 55
+Adding the write side took the standing bill to 1,801: `write` costs 413, `delete` 206. That is 52
 percent on top of the read-only figure, and unlike the slicing parameters it does not repay itself
 in reads — a client that never writes pays 619 tokens per session for tools it will not call.
 Against a session that bills 64,355 it is under one percent; against the entry fee it is the

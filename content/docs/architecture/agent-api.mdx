@@ -10,14 +10,15 @@ Few verbs, all deterministic.
 manifest()                            -> TSV, usually already in the cached prefix
 get(ids[], {section, offset, limit, find}?) -> slices, one round trip for N concepts
 snapshot()                            -> digest, to check whether the manifest is stale
-search(query, k)                      -> ranked rows, each direct hit carrying pos
+search(query, k)                      -> ranked rows, each direct hit carrying pos,
+                                         anchored when the query names a concept
 write(bundle, path, content, replaces?) -> new digest, plus that file's warnings
 delete(bundle, path, replaces?)       -> new digest
 ```
 
 ## Tool count is a token cost
 
-The four read definitions measure 1,122 tokens in the client's system prompt, paid on every single
+The four read definitions measure 1,182 tokens in the client's system prompt, paid on every single
 turn whether or not any of them is called, and the bill scales with the count: fifteen tools would
 run several thousand.
 
@@ -25,7 +26,7 @@ That is the whole reason this list is short. Each verb had to earn a place again
 cost. `manifest` and `search` narrow, `get` fetches, `snapshot` invalidates. Nothing else did until
 an agent needed somewhere to put what it learned.
 
-`write` costs 413 and `delete` 206, taking the standing bill to 1,741 — 55 percent on top of the
+`write` costs 413 and `delete` 206, taking the standing bill to 1,801 — 52 percent on top of the
 read-only figure. `write` alone ties `get` as the most expensive definition in the set, and 70 of
 its tokens are the single paragraph teaching a model to recover from a refused precondition. That
 paragraph is the cheap option: the alternative, a separate tool that reads a concept's hash, would
@@ -33,6 +34,18 @@ have cost a whole definition and left `write` explaining `replaces` anyway. `del
 size because it inherits the lesson by reference instead of restating it.
 
 A deployment that only ever reads pays all 619 for nothing. There is no flag that omits them.
+
+### The graph earned no verb
+
+The store derives backlinks, orphans, dangling links, hubs, components and clusters from every
+snapshot, and the [library](/docs/guides/library) and the [HTTP API](/docs/guides/http-api) expose
+that as `graph`. Over MCP it earned nothing. The sixty tokens the anchor added to `search`'s
+description bought the neighbourhood of any concept a query names, inside the verb that already
+existed; a seventh tool would cost a whole definition in every session for what is left, and
+`bench/graph.ts` measures what that is. Direct dependents and two-hop lineage the anchored search
+already answers at 86 and 100 percent recall. Impact — everything within two hops upstream of a
+concept, up to fifteen rows — it answers at a third, where a scoped read would reach 100 percent
+for 6,900 tokens. That is the price and the gain of the seventh verb, and it is not paid yet.
 
 ## Batching `get` is what kills latency
 

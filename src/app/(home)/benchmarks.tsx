@@ -49,7 +49,7 @@ const benchmarks: Benchmark[] = [
   {
     id: 'retrieval',
     label: 'Retrieval',
-    note: 'The concept that answers, found in the top 8. Named queries, default link expansion, never worse than the raw files.',
+    note: 'The concept that answers, found in the top 8. Named queries, default link expansion, anchored where the query names a concept; never worse than the raw files.',
     chart: (
       <>
         <DotPlot
@@ -57,7 +57,7 @@ const benchmarks: Benchmark[] = [
           axis="100%"
           unit="percent"
           rows={[
-            { label: 'reference, catalogue', base: 70, store: 75, display: '70 → 75%' },
+            { label: 'reference, catalogue', base: 70, store: 85, display: '70 → 85%' },
             { label: 'handbook, recipes', base: 90, store: 100, display: '90 → 100%' },
             { label: 'spec, RFCs', base: 95, store: 100, display: '95 → 100%' },
             { label: 'book, novels', base: 80, store: 80, display: '80 → 80%' },

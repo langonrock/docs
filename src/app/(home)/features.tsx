@@ -1,7 +1,7 @@
 'use client';
 
 import { AnimatePresence, MotionConfig, motion } from 'framer-motion';
-import { Copy, FolderSymlink, Layers, Repeat, Scissors, Snowflake } from 'lucide-react';
+import { Copy, FolderSymlink, Layers, Network, Scissors, Snowflake } from 'lucide-react';
 import { useState } from 'react';
 import { cn } from '@/lib/cn';
 
@@ -35,10 +35,10 @@ const features = [
       'Pass every id you need at once instead of paying an inference turn per hop. The cost of a batched fetch is flat from 500 concepts to 20,000.',
   },
   {
-    icon: Repeat,
-    title: 'The same query returns the same set',
+    icon: Network,
+    title: 'Name a concept and get its neighbourhood',
     description:
-      'Retrieval is BM25 plus a one-hop expansion over the link graph, capped so a hub concept cannot drag in half the manifest. No model anywhere in the path, so results do not drift under you.',
+      'A query that names a concept by id or title anchors the ranking on its links: a personalized PageRank from the named concepts, fused with BM25. Named lookups go from 70% to 85% in the top eight and “what depends on X” from 40% to 72% recall, at the same token cost. No anchor, nothing changes, and no model anywhere in the path.',
   },
   {
     icon: Copy,
