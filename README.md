@@ -1,9 +1,10 @@
 # langondocs
 
-The documentation site for [langonrock](https://github.com/langonrock/langonrock), a multi-tenant
-store for Open Knowledge Format bundles. Content is written as MDX in `content/docs/`, and the site
-renders it as searchable, statically generated pages plus a set of machine-readable Markdown
-endpoints.
+The documentation site for [langonrock](https://github.com/langonrock/langonrock), a document
+database for what your agents know: Markdown stored in its own engine, with atomic commits, history
+and restore, compiled into a read model agents read for fewer tokens. Content is written as MDX in
+`content/docs/`, and the site renders it as searchable, statically generated pages plus a set of
+machine-readable Markdown endpoints.
 
 Built with [Fumadocs](https://fumadocs.dev) on Next.js 16.
 
@@ -36,12 +37,15 @@ step. The content index is generated when Next.js starts.
 
 | Section | Covers |
 | --- | --- |
-| [Getting started](content/docs/getting-started) | Install, a four-command quickstart, and the vocabulary |
-| [Guides](content/docs/guides) | CLI, connection modes, the server, tokens and TLS, MCP, the HTTP API, editing, the library, large tenants, backups |
-| [Architecture](content/docs/architecture) | What OKF is, where the cost goes, the compiled read model, storage, the agent API, cross-platform traps, runtime choice, benchmarks |
+| [Getting started](content/docs/getting-started) | Install, a quickstart from import to restore, and the vocabulary |
+| [Database](content/docs/database) | Transactions, history and restore, folder import and export, migrating a legacy tenant, durability and failures, collection and backups |
+| [Guides](content/docs/guides) | CLI, connection modes, the server, tokens and TLS, MCP, the HTTP API, editing, the library, agent frameworks, large tenants |
+| [Architecture](content/docs/architecture) | What OKF is, where the cost goes, the compiled read model, storage, the agent API, runtime and platforms, benchmarks for the read model and the engine |
 
-The source of truth for all of it is the langonrock repository: its `README.md`, its `DESIGN.md`,
-and the code itself. When langonrock changes, these pages have to be updated by hand.
+The source of truth for all of it is the langonrock repository: its `README.md`, `docs/dbms.md`,
+`docs/benchmarks/dbms.md`, `CHANGELOG.md`, the recorded results under `bench/results/`, and the code
+itself, which wins wherever they disagree. Its `DESIGN.md` is a historical record, not the engine's
+contract. When langonrock changes, these pages have to be updated by hand.
 
 ## Adding a page
 
@@ -68,9 +72,8 @@ Most Fumadocs material online predates these versions:
 - Content collections use the **Macro API** in `src/lib/source.ts`. There is no `source.config.ts`.
 - `fumadocs-ui` is an npm alias for `@fumadocs/base-ui`, meaning Base UI primitives, not Radix.
 - Search uses **zbsearch**, not Orama.
-- `proxy.ts` is Next 16's renamed middleware, and it currently sits at the repository root, where
-  Next never looks for it in a `src/` layout. Markdown content negotiation stays inactive until it
-  moves to `src/proxy.ts`.
+- `src/proxy.ts` is Next 16's renamed middleware. It serves the Markdown version of a page to
+  agents that ask for `text/markdown`, and to any `/docs/*.md` URL.
 
 ## Learn more
 
