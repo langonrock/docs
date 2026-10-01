@@ -1,45 +1,17 @@
 ---
 title: Running a server
-description: sources.json, the built-in watcher, sockets and TCP.
+description: Serve a data directory over a socket or TCP, with folders to import and watch only if you want them.
 icon: Server
 ---
 
 import { Step, Steps } from 'fumadocs-ui/components/steps';
 
-This needs two directories. Your Markdown lives wherever you already keep it, usually a git
-repository of its own, and the store is a separate folder the server owns. Folders are never moved
-into the store.
+The daemon serves every tenant in its data directory. Native tenants need nothing else: a write
+through the API commits to the database, and a tenant that does not exist yet is created by its
+first write. A folder of Markdown is optional, for teams that keep editing files in a repository and
+want the database to follow.
 
 <Steps>
-<Step>
-
-### Create both directories
-
-```sh
-mkdir -p ~/okf/sources/acme/sales ~/okf/data
-```
-
-Every immediate subdirectory of `sources/acme` is a bundle, so concepts go in
-`sources/acme/sales/`, never directly in `sources/acme/`.
-
-</Step>
-<Step>
-
-### Map the tenant to its folder
-
-```sh
-echo '{ "acme": "/home/me/okf/sources/acme" }' > ~/okf/data/sources.json
-```
-
-Write the path in full. Nothing expands `~` inside a JSON string.
-
-`sources.json` does two things at once. It makes the tenant writable over the API, and it tells
-`serve` to compile the folder at startup and keep watching it. A tenant with no entry stays readable
-and refuses writes, which is the right default and needs no flag — with one exception: a `PUT` to a
-tenant that has no directory and no snapshots creates one, and the daemon adds it to this file and
-starts watching it without a restart.
-
-</Step>
 <Step>
 
 ### Start it
@@ -49,12 +21,10 @@ langonrock serve --data ~/okf/data --socket /tmp/okf.sock
 ```
 
 ```
-snapshot 9ac37f10832c (new), 1 bundle [sales], 1 concepts, 342 bytes on disk
-watching /home/me/okf/sources/acme for tenant acme
-langonrock serving /home/me/okf/data on /tmp/okf.sock (0 tokens, 1 writable tenant)
+langonrock serving /home/me/okf/data on /tmp/okf.sock (0 tokens, 0 writable tenants)
 ```
 
-Those three lines say the whole story. It compiled, it is watching, and it is listening.
+Without `--socket`, the daemon listens on `<data>/langonrock.sock`.
 
 </Step>
 <Step>
@@ -66,21 +36,55 @@ langonrock query "okf+unix:///tmp/okf.sock?tenant=acme" manifest
 langonrock query "okf+unix:///tmp/okf.sock?tenant=acme" search orders
 ```
 
+Every client that connects shares this one process, its open tenants and their warm search
+indexes, so no agent invocation pays a cold start.
+
 </Step>
 </Steps>
 
-## The server runs the watcher itself
+## What the banner counts
 
-You do not need a separate `sync` first, and you do not need `langonrock watch` in another
-terminal. Running both would put two watchers on one tenant.
+The last line reports how many tokens loaded and how many folders the daemon is watching:
 
-One watcher starts per entry in `sources.json`, and the server keeps them rather than discarding
-them, so a client that writes through the API can ask for a recompile and be told the new digest.
-That is what `POST /v1/{tenant}/sync` uses. The set is not fixed at startup: a tenant created by its
-first write gets a watcher then and there, so `0 writable tenants` on the banner is a starting point
-rather than a verdict.
+```
+langonrock serving /home/me/okf/data on /tmp/okf.sock (0 tokens, 1 writable tenant)
+```
 
-Without `--socket`, the daemon listens on `<data>/langonrock.sock`.
+"Writable tenant" there counts the entries in `sources.json`, not the tenants that accept writes.
+Under the CLI daemon every native tenant accepts a write from a token granted write access, or from
+any caller on a socket with no tokens, so `0 writable tenants` does not mean the store is read-only.
+
+Zero tokens on a socket is a valid configuration. Zero tokens on TCP never starts.
+
+## Importing and watching a folder
+
+Register a folder per tenant in `sources.json`, next to the data:
+
+```sh
+mkdir -p ~/okf/sources/acme/sales ~/okf/data
+echo '{ "acme": "/home/me/okf/sources/acme" }' > ~/okf/data/sources.json
+```
+
+Write the path in full. Nothing expands `~` inside a JSON string, and every immediate subdirectory
+of the folder is a bundle.
+
+At startup the daemon imports each registered folder and keeps watching it, one watcher per entry:
+
+```
+snapshot cd9078b9af0b (new), 2 bundles [ops sales], 3 concepts, 1236 bytes on disk
+watching /home/me/okf/sources/acme for tenant acme
+langonrock serving /home/me/okf/data on /tmp/okf.sock (0 tokens, 1 writable tenant)
+```
+
+Those three lines say it imported, it is watching, and it is listening. You do not need a separate
+`import` first, and you do not need `langonrock watch` in another terminal. Running both would put
+two watchers on one tenant.
+
+The folder and the database can both change, and neither silently wins. An unchanged file in the
+folder never overwrites an edit made through the API; a file changed in the folder is imported; a
+document changed differently in both fails the whole import, and the watcher reports the conflict
+instead of picking a side. Nothing is ever written back to the folder. [Import, watch and
+export](/docs/database/folders) covers the rules.
 
 <Callout type="warn" title="ENOENT: no such file or directory, watch '...'">
   A path in `sources.json` does not exist. The folder has to be there before the server starts, and
@@ -88,29 +92,30 @@ Without `--socket`, the daemon listens on `<data>/langonrock.sock`.
   `sources/acme/orders.md` gives you an empty tenant.
 </Callout>
 
-## Tuning the watcher
+### Tuning the watcher
 
-| Flag             | Default | What it controls                                    |
-| ---------------- | ------- | --------------------------------------------------- |
-| `--debounce`     | 200 ms  | How long to coalesce filesystem events before compiling |
-| `--rescan`       | 30 s    | Full rescan interval, the backstop for missed events |
+| Flag         | Default | What it controls                                        |
+| ------------ | ------- | ------------------------------------------------------- |
+| `--debounce` | 200 ms  | How long to coalesce filesystem events before importing |
+| `--rescan`   | 30 s    | Full rescan interval, the backstop for missed events    |
 
-Watch events are a hint, never the source of truth. FSEvents coalesces, `ReadDirectoryChangesW`
-overflows its buffer under bursts, and inotify has a watch limit. The rescan is nearly free, since
-an unchanged tree hashes to the snapshot that already exists and the write is skipped.
+Watch events are a hint, never the whole story. FSEvents coalesces, `ReadDirectoryChangesW`
+overflows its buffer under bursts, and inotify has a watch limit. The rescan writes nothing when the
+tree is unchanged, but it is not free: at 5,000 concepts it takes 84 ms of work to conclude that
+nothing happened, against 167 ms for an import that changes one concept.
 
-On a large tenant a compile is a few hundred milliseconds, so an aggressively autosaving editor
-should raise `--debounce` rather than call `sync` on every keystroke.
+`--debounce` only coalesces changes made to the folder. Writes through the API commit directly and
+never wait on it.
 
-## Watching one extra tenant
+### Watching one extra tenant
 
 ```sh
 langonrock serve --data ~/okf/data --tenant beta --watch ~/okf/sources/beta
 ```
 
-`--watch` starts a watcher for `--tenant` without adding it to `sources.json`, so the tenant is
-kept in sync but stays read-only over the API. `sources.json` is the better answer in almost every
-case, since it survives a restart and does not depend on the command line.
+`--watch` keeps one more tenant importing from a folder without recording it in `sources.json`, so
+it lasts exactly as long as that command line. `sources.json` is the better answer in almost every
+case, since it survives a restart.
 
 ## Over TCP
 
@@ -127,16 +132,27 @@ rather than per request. See [Tokens and TLS](/docs/guides/security).
 Progress goes to stderr so stdout stays clean for piping, and Bun paints anything written with
 `console.error` red. Those lines are status, not failures.
 
-The last line reports how many tokens loaded and how many tenants are writable:
+## From the library
 
-```
-langonrock serving /home/me/okf/data on /tmp/okf.sock (0 tokens, 1 writable tenant)
+`serve()` is the same server without the CLI around it, and it starts read-only:
+
+```ts
+import { serve } from 'langonrock';
+
+serve({ root: '/var/data', unix: '/tmp/okf.sock', writable: true });
 ```
 
-Zero tokens on a socket is a valid configuration. Zero tokens on TCP never starts.
+The CLI daemon sets `writable: true` itself. A library caller must set it, or pass a `sourceDir`
+callback that authorizes each tenant, before any write route accepts a change; without either, a
+write is refused with a 409 that names `sources.json`. TLS is passed as PEM text rather than file
+paths, so the module never touches the filesystem to start.
 
 ## Memory is the practical ceiling
 
-The store rebuilds the BM25 index in memory once per snapshot. At 20,000 concepts, peak process
-memory landed between 0.9 and 1.2 GB across runs, too noisy for a single figure to be worth
-printing but firmly the limit on how many large tenants one daemon can hold.
+The daemon keeps the 16 most recently used tenants open, each with its BM25 index in memory: 1.1 MB
+of heap at 500 concepts, 8.1 MB at 5,000 and 32 MB at 20,000. In the engine benchmarks, a fresh
+process that opens 20,000 concepts, builds the index and searches peaks at 0.36 GB resident.
+
+Each folder import rebuilds the index right away, so the first search after a save to the folder
+does not pay for it. A commit through the API does not warm it: the first search after one builds
+the index, 19 ms at 500 concepts and 578 ms at 20,000.

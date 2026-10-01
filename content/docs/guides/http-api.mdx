@@ -1,6 +1,6 @@
 ---
 title: HTTP API
-description: The read endpoints, their ETags, and the one response that is not JSON.
+description: The read, write and database routes, their ETags, and the error bodies a client can switch on.
 icon: Globe
 ---
 
@@ -16,7 +16,6 @@ GET  /v1/{tenant}/manifest[?bundle=sales]  the manifest, ETag is the snapshot di
 GET  /v1/{tenant}/snapshot                 {"snapshot": "…", "concepts": n}
 POST /v1/{tenant}/get                      {"ids": [...], "section"?, "offset"?, "limit"?, "find"?}
 POST /v1/{tenant}/search                   {"q": "...", "k"?: n, "expand"?: false, "bundle"?: "..."}
-GET  /v1/{tenant}/graph                    {"nodes": [...], "edges": [...], "summary": {...}}
 ```
 
 The tenant segment is optional when a token identifies one, so `/v1/manifest` and
@@ -36,26 +35,40 @@ The manifest carries an `ETag` set to the snapshot digest, or to `digest:bundle`
 Send `If-None-Match` with the ETag you hold and an unchanged manifest answers `304` with no body.
 
 ```sh
-curl -H 'Authorization: Bearer read-only' -H 'If-None-Match: "9ac37f10832c…"' \
+curl -i -H 'Authorization: Bearer read-only' \
+  -H 'If-None-Match: "cd9078b9af0b1d912a9e6e0c8c12d409be3aac3394085d56dc618458b5e23ad8"' \
   http://127.0.0.1:7777/v1/manifest
+```
+
+```
+HTTP/1.1 304 Not Modified
+ETag: "cd9078b9af0b1d912a9e6e0c8c12d409be3aac3394085d56dc618458b5e23ad8"
 ```
 
 Between turns of a conversation that is the whole transfer skipped. `snapshot` is the cheaper check
 when you only want to know whether anything moved.
 
+The digest names compiled bytes, not a commit. Two revisions that compile to the same bytes share a
+snapshot, so a commit that changes only what the read model does not carry leaves the ETag alone.
+Use `history` when you need to know about commits.
+
 ## Responses
 
-| Endpoint   | Content type                    | Shape                                        |
-| ---------- | ------------------------------- | -------------------------------------------- |
-| `manifest` | `text/tab-separated-values`     | Raw TSV, comment lines then a header row      |
-| `snapshot` | `application/json`              | `{"snapshot": "…", "concepts": n}`           |
-| `get`      | `application/json`              | An object of slices keyed by id, missing ids absent |
-| `search`   | `text/tab-separated-values`     | Manifest rows plus a trailing `pos` column, with `# query` and `# hits` comments |
+| Endpoint   | Content type                | Shape                                                                     |
+| ---------- | --------------------------- | ------------------------------------------------------------------------- |
+| `manifest` | `text/tab-separated-values` | Raw TSV, comment lines then a header row                                  |
+| `snapshot` | `application/json`          | `{"snapshot": "…", "concepts": n}`                                        |
+| `get`      | `application/json`          | An object of slices keyed by id, missing ids absent                       |
+| `search`   | `text/tab-separated-values` | Manifest rows plus a trailing `pos` column, with `# query` and `# hits` comments |
 
 `get` returns an object rather than an array, so a missing id is simply not a key. Nothing errors
 when one of a batch does not exist. Each value is a slice — `{"text", "start", "end", "total"}`,
 plus `"matches"` and `"matchCount"` when `find` was set — so a caller always knows how much text
-exists beyond what it received.
+exists beyond what it received:
+
+```json
+{"orders":{"text":" | STRING    | Primary key.                      |\n| `customer_id` | STRING    | Joins to [customers](./customers.md). |","start":158,"end":278,"total":476,"matches":[212,462],"matchCount":2}}
+```
 
 ## Get parameters
 
@@ -74,70 +87,139 @@ program.
 `search` returns manifest rows and never bodies. Each direct hit ends in a `pos` cell — the offset
 where the query's words cluster densest in the body, `-` when they only match the row — so the
 follow-up `get` can be `{"offset": pos, "limit": 2000}` instead of the whole document. Narrow with
-`search`, then fetch what you chose with `get`. A query that names a concept by id or exact title
-anchors the ranking on its link neighbourhood and says so on an `# anchors:` line; there is no
-parameter for it.
-
-`graph` returns the whole link graph of the tenant as JSON — every node with its links in both
-directions and a cluster label, every edge typed by the section its link sits in, and a summary
-with orphans, dangling links, hubs, components and clusters. It is derived from the snapshot and
-memoised per snapshot, so the first call per snapshot pays the build (159 ms at 20,000 concepts,
-clustering included) and later ones do not.
+`search`, then fetch what you chose with `get`.
 
 ## Search parameters
 
-| Field    | Default | Effect                                                  |
-| -------- | ------- | ------------------------------------------------------- |
-| `q`      | required | The query. An empty string is a 400.                   |
-| `k`      | 8       | Ranked matches before link expansion                    |
-| `expand` | `true`  | `false` disables the one-hop expansion over the link graph |
-| `bundle` | none    | Rank only within this bundle, and expand only into it   |
+| Field    | Default  | Effect                                                     |
+| -------- | -------- | ---------------------------------------------------------- |
+| `q`      | required | The query. An empty string is a 400.                       |
+| `k`      | 8        | Ranked matches before link expansion                       |
+| `expand` | `true`   | `false` disables the one-hop expansion over the link graph |
+| `bundle` | none     | Rank only within this bundle, and expand only into it      |
 
 The expansion is capped at `k` and ranked by how many hits point at a target, so a hub concept with
 sixteen outgoing links cannot drag most of the manifest into the result.
 
+## Write and database routes
+
+```
+GET    /v1/{tenant}/source                 list documents with sizes, hashes and ids
+GET    /v1/{tenant}/source/{bundle}/{path} read one, ETag is its content hash
+PUT    /v1/{tenant}/source/{bundle}/{path} create or replace one, as its own commit
+DELETE /v1/{tenant}/source/{bundle}/{path} delete one, as its own commit
+DELETE /v1/{tenant}/bundles/{bundle}       delete a whole bundle, as one commit
+POST   /v1/{tenant}/transact               commit a batch atomically
+GET    /v1/{tenant}/history                committed revisions, newest first
+POST   /v1/{tenant}/restore                publish an older revision as a new commit
+POST   /v1/{tenant}/sync                   the current commit and its diagnostics
+```
+
+Single documents and their preconditions are covered in [Editing over the
+network](/docs/guides/editing). Every change on a native tenant is a commit: the response comes back
+after the revision is durable, and the next read already sees it.
+
+### transact
+
+```sh
+curl -X POST -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+  -d @batch.json http://127.0.0.1:7777/v1/transact
+```
+
+The body is a `TransactionRequest`, `{"changes": [...], "expectedRevision"?: "…"}`, where each
+change is one of:
+
+```
+{"operation": "write", "bundle": "…", "path": "…", "content": "…", "replaces"?: "…"}
+{"operation": "delete", "bundle": "…", "path": "…", "replaces": "…"}
+```
+
+One to 1,000 changes and at most 16 MiB of source text. A body that names a tenant is refused,
+because the token already decides it. A success answers 200 with the new revision:
+
+```json
+{"revision":"984e1dcb03ea2403acd84528949187909ef0e327504f03d92e00b199ba9dc9c9","snapshot":"0203add32834701b39b60d1b330ad88349a42c93e52bf29d0a660961372098ff","concepts":4,"bundles":["ops","sales"],"diagnostics":[]}
+```
+
+A batch that fails any precondition publishes nothing and answers 409 with a code a client can
+switch on:
+
+```
+HTTP/1.1 409 Conflict
+Content-Type: application/json;charset=utf-8
+
+{"code":"CONFLICT","message":"concept already exists: re-read the concept and retry with its new hash"}
+```
+
+[Transactions](/docs/database/transactions) covers what each conflict message means and what to
+re-read before retrying.
+
+### history and restore
+
+```
+GET /v1/{tenant}/history?limit=20&before=<cursor>
+```
+
+`limit` runs from 1 to 100 and defaults to 20; anything else is a 400. A read-only token may page
+history. The answer is `{"revisions": [...], "next"?: "…"}`, newest first, and `next` is the cursor to
+pass as `before` for the page after.
+
+```
+POST /v1/{tenant}/restore        {"revision": "…", "expectedRevision": "…"}
+```
+
+Restore needs a write token, and `expectedRevision` must be the current head or the call answers
+409 `CONFLICT` with `database changed: re-read the revision and document hashes`. It publishes the
+older revision's complete source state as a new commit and rewrites nothing. See [History and
+restore](/docs/database/history).
+
+### sync
+
+On a native tenant `sync` creates nothing. It answers with the current commit and its compiler
+diagnostics, the same shape `transact` returns. On a tenant that has not been
+[migrated](/docs/database/migration), it recompiles the registered source folder, which is why it
+asks for a write token on both.
+
 ## Status codes
 
-| Code | When                                                                    |
-| ---- | ----------------------------------------------------------------------- |
-| 200  | Fine                                                                    |
-| 204  | A write or delete on the source API succeeded                           |
-| 304  | `If-None-Match` matched the current ETag                                |
-| 400  | A malformed body, or a missing concept path                             |
-| 401  | Missing or unknown bearer token                                         |
-| 403  | The token does not grant that tenant, or may read but not write         |
-| 404  | No such route, no such concept, no such bundle                          |
-| 405  | Wrong method for the route                                              |
-| 409  | The tenant has no source directory, or the server cannot recompile      |
-| 412  | A precondition failed on a write                                        |
-| 413  | A concept larger than 1,000,000 bytes                                   |
-| 428  | A write with no precondition header                                     |
+| Code | When                                                                                      |
+| ---- | ----------------------------------------------------------------------------------------- |
+| 200  | Fine                                                                                      |
+| 204  | A document write or delete committed, or a bundle was deleted                             |
+| 304  | `If-None-Match` matched the current ETag                                                  |
+| 400  | A malformed body or path, a hash that is not 64 hex characters, a history `limit` outside 1–100, text that is not valid UTF-8 |
+| 401  | Missing or unknown bearer token, or no tenant in the path on a server with no tokens       |
+| 403  | The token does not grant that tenant, or may read but not write                           |
+| 404  | No such route, no such document, no such bundle, and the catch-all below                  |
+| 405  | Wrong method for the route                                                                |
+| 409  | A database conflict, a tenant that is not migrated yet, or a tenant with no data           |
+| 412  | A stale precondition on a single-document write or delete                                 |
+| 413  | A document larger than 1,000,000 bytes                                                    |
+| 428  | A document write or delete with no precondition header                                    |
+| 503  | The commit outcome is indeterminate                                                       |
 
-Errors carry a plain-text message, not a JSON envelope.
+Most errors carry a plain-text message. The database errors carry JSON with a `code`, so a client
+can tell them apart without parsing prose:
 
-<Callout type="warn" title="404 is also the catch-all">
-  Anything thrown that is not an explicit `HttpError` becomes a 404 carrying its message. A failed
-  compile during `sync` therefore arrives as "not found" rather than as a 500, so a client should
-  read the body instead of switching on the status alone.
+| Status | Body                                                          | Meaning                                              |
+| ------ | ------------------------------------------------------------- | ---------------------------------------------------- |
+| 409    | `{"code": "CONFLICT", "message": "…"}`                        | A precondition or `expectedRevision` no longer holds |
+| 409    | `{"code": "LEGACY_TENANT", "message": "…"}`                   | The tenant needs [migration](/docs/database/migration) first |
+| 503    | `{"code": "INDETERMINATE_COMMIT", "message": "…", "revision": "…"}` | The commit may or may not have landed           |
+
+A conflict on a single-document `PUT` or `DELETE` comes back as a plain-text 412 instead, since the
+precondition there travels in a header.
+
+<Callout type="warn" title="503 means look before you retry">
+  An indeterminate commit failed after the point where it may already be durable. The body names
+  the revision. Read `history` and decide from what is there; [Durability](/docs/database/durability)
+  covers the contract.
 </Callout>
 
-## Write endpoints
-
-Creating, changing and deleting concepts goes through the source API, which writes Markdown rather
-than snapshots. Those routes are covered in [Editing over the
-network](/docs/guides/editing).
-
-```
-GET    /v1/{tenant}/source
-GET    /v1/{tenant}/source/{bundle}/{path}
-PUT    /v1/{tenant}/source/{bundle}/{path}
-DELETE /v1/{tenant}/source/{bundle}/{path}
-DELETE /v1/{tenant}/bundles/{bundle}
-POST   /v1/{tenant}/sync
-```
-
-<Callout title="No HTTP request ever writes a snapshot">
-  The watcher recompiles from source, so a snapshot written directly would be overwritten within
-  seconds. Writing source is the path the design endorses, and it leaves the read API above
-  untouched.
+<Callout type="warn" title="404 is also the catch-all">
+  Anything thrown that is not one of the errors above becomes a 404 carrying its message. That
+  includes `database busy: another process holds the lock`, which a writer gets after waiting 5
+  seconds for a lock another process holds, and the read of a tenant that has no data, whose message
+  names the file it could not open. A client should read the body instead of switching on the status
+  alone.
 </Callout>
