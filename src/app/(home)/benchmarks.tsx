@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { BarChart, DotPlot, Legend } from './charts';
+import { BarChart, ChangeChart } from './charts';
 
 interface Benchmark {
   id: string;
@@ -15,7 +15,7 @@ const benchmarks: Benchmark[] = [
   {
     id: 'tokens',
     label: 'Tokens',
-    note: 'Against the OKF reference consumption pattern.',
+    note: 'Twenty questions over 500 concepts, against the OKF reference consumption pattern. The same session takes 17 tool calls instead of 30.',
     chart: (
       <BarChart
         title="Tokens billed"
@@ -30,41 +30,45 @@ const benchmarks: Benchmark[] = [
     ),
   },
   {
-    id: 'calls',
-    label: 'Round trips',
-    note: 'Tool calls to answer the same twenty questions, manifest strategy. Ranking first instead trades one extra call per question for tokens.',
+    id: 'engine',
+    label: 'Engine',
+    note: 'Median of ten paired runs at 5,000 concepts on Bun 1.4.2, the runtime the binary ships with. Opening a tenant fails its limit there, at 500 concepts too, so performance acceptance is still open. Disk is ten identical edits with ten revisions kept, measured on Bun 1.3.12.',
     chart: (
-      <BarChart
-        title="Tool calls"
-        axis="30 calls"
-        unit="tool calls"
-        max={30}
+      <ChangeChart
+        title="Against the engine it replaced"
+        axis="±70%"
+        unit="percent change"
+        max={70}
         rows={[
-          { label: 'OKF navigator', value: 30, display: '30' },
-          { label: 'langonrock', value: 17, display: '17', accent: true },
+          { label: 'Get a concept', value: -48.72, display: '−49%' },
+          { label: 'Edit, then search', value: -44.93, display: '−45%' },
+          { label: 'Warm search', value: -37.35, display: '−37%' },
+          { label: 'Import a folder', value: -5.18, display: '−5%' },
+          { label: 'Open a tenant', value: 34.26, display: '+34%' },
+          { label: 'Disk, ten revisions', value: 68.9, display: '+69%' },
         ]}
       />
     ),
   },
   {
-    id: 'retrieval',
-    label: 'Retrieval',
-    note: 'The concept that answers, found in the top 8. Named queries, default link expansion, anchored where the query names a concept; never worse than the raw files.',
+    id: 'operations',
+    label: 'Operations',
+    note: 'Median milliseconds at 5,000 concepts on Bun 1.3.12. The old engine had none of these, so there is nothing to compare against. A commit writes a complete snapshot, so it grows with the tenant: 25 new documents take 36 ms at 500 concepts and 278 ms at 20,000.',
     chart: (
-      <>
-        <DotPlot
-          title="Hit rate in the top 8"
-          axis="100%"
-          unit="percent"
-          rows={[
-            { label: 'reference, catalogue', base: 70, store: 85, display: '70 → 85%' },
-            { label: 'handbook, recipes', base: 90, store: 100, display: '90 → 100%' },
-            { label: 'spec, RFCs', base: 95, store: 100, display: '95 → 100%' },
-            { label: 'book, novels', base: 80, store: 80, display: '80 → 80%' },
-          ]}
-        />
-        <Legend items={[{ label: 'OKF raw files' }, { label: 'langonrock', accent: true }]} />
-      </>
+      <BarChart
+        title="What a database operation costs"
+        axis="93.8 ms"
+        unit="milliseconds"
+        max={93.753}
+        rows={[
+          { label: 'Commit 25 new documents', value: 93.753, display: '93.8 ms', accent: true },
+          { label: 'Restore a revision', value: 71.397, display: '71.4 ms', accent: true },
+          { label: 'Commit 25 replacements', value: 39.879, display: '39.9 ms', accent: true },
+          { label: 'Refuse the losing writer', value: 18.731, display: '18.7 ms', accent: true },
+          { label: 'Commit the winning writer', value: 14.874, display: '14.9 ms', accent: true },
+          { label: 'Read a page of history', value: 1.135, display: '1.1 ms', accent: true },
+        ]}
+      />
     ),
   },
   {
@@ -90,13 +94,11 @@ const benchmarks: Benchmark[] = [
 ];
 
 /**
- * The hero carries the benchmarks the evaluation turns on: what a session
- * costs, how many turns it takes, whether the right concept comes back, and
- * how the saving moves with corpus shape. Magnitudes are zero-baseline bars.
- * Hit rate is a dot pair instead, because it is a rate against a fixed
- * ceiling and a bar renders 70 against 75 as two near-identical lengths.
- * Per-read cost and manifest growth live further down the page, in the
- * features and the cost section, so the hero does not repeat them.
+ * The hero carries the benchmarks the evaluation turns on: what a session costs
+ * an agent, how the engine moved against the one it replaced, what the new
+ * database operations cost, and how the saving moves with corpus shape. The
+ * engine tab is signed change around a zero line, because its rows mix time and
+ * disk and only the direction and size of the change compare across them.
  */
 export function Benchmarks() {
   const [active, setActive] = useState(benchmarks[0].id);
@@ -157,10 +159,15 @@ export function Benchmarks() {
       </div>
 
       <p className="lr-bench-foot">
-        Synthetic corpus, <code className="lr-mono">chars / 4</code> token estimate.{' '}
+        How these were measured:{' '}
         <Link href="/docs/architecture/benchmarks" className="lr-link">
-          Method
+          read model
         </Link>
+        ,{' '}
+        <Link href="/docs/architecture/engine-benchmarks" className="lr-link">
+          engine
+        </Link>
+        .
       </p>
     </div>
   );

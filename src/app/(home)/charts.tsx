@@ -110,59 +110,74 @@ export function GroupedBarChart({ title, axis, unit, groups, max }: GroupedProps
   );
 }
 
-export interface DotRow {
+export interface ChangeRow {
   label: string;
-  /** Where the raw-file baseline lands, 0 to 100. */
-  base: number;
-  /** Where langonrock lands, 0 to 100. */
-  store: number;
+  /** Signed percentage against the baseline: negative is less of it, positive is more. */
+  value: number;
   display: string;
 }
 
-interface DotPlotProps {
+interface ChangeChartProps {
   title: string;
   axis: string;
   unit: string;
-  rows: DotRow[];
+  rows: ChangeRow[];
+  max: number;
 }
 
 /**
- * Rates against a fixed ceiling. A zero-baseline bar renders 70 against 75 as
- * two near-identical lengths, so each row shows both points on one 0–100
- * scale instead: where the raw files land, and where the store lands. A tie
- * renders as concentric dots, which is the honest picture of a tie.
+ * Change against a baseline that sits on the zero line, so a bar's direction is
+ * the finding and its length the size of it. Every bar is the new engine, so
+ * every bar carries the accent; colouring the regressions differently would
+ * repaint the meaning whenever a number crossed the line.
  */
-export function DotPlot({ title, axis, unit, rows }: DotPlotProps) {
+export function ChangeChart({ title, axis, unit, rows, max }: ChangeChartProps) {
   return (
     <figure className="lr-figure">
-      <Caption title={title} axis={axis} />
+      <figcaption className="lr-figcaption">
+        <b>{title}</b>
+        <span className="lr-mono">{axis}</span>
+      </figcaption>
 
       <table className="lr-chart">
         <caption className="sr-only">
           {title}, measured in {unit}
         </caption>
         <tbody>
-          {rows.map((row) => (
-            <tr key={row.label}>
-              <th scope="row" className="lr-chart-label">
-                {row.label}
-              </th>
-              <td className="lr-chart-cell">
-                <span className="lr-track lr-dot-track" aria-hidden="true">
-                  <span
-                    className="lr-dot-span"
-                    style={{
-                      left: `${Math.min(row.base, row.store)}%`,
-                      width: `${Math.abs(row.store - row.base)}%`,
-                    }}
-                  />
-                  <span className="lr-dot" style={{ left: `${row.base}%` }} />
-                  <span className="lr-dot lr-dot-accent" style={{ left: `${row.store}%` }} />
-                </span>
-              </td>
-              <td className="lr-chart-value">{row.display}</td>
-            </tr>
-          ))}
+          {rows.map((row) => {
+            const width = `${Math.max((Math.abs(row.value) / max) * 50, 0.6)}%`;
+            return (
+              <tr key={row.label}>
+                <th scope="row" className="lr-chart-label">
+                  {row.label}
+                </th>
+                <td className="lr-chart-cell">
+                  <span className="lr-track lr-change-track" aria-hidden="true">
+                    <span
+                      className={
+                        row.value < 0
+                          ? 'lr-change-fill lr-change-less'
+                          : 'lr-change-fill lr-change-more'
+                      }
+                      style={{ width }}
+                    />
+                  </span>
+                </td>
+                <td className="lr-chart-value">{row.display}</td>
+              </tr>
+            );
+          })}
+          <tr aria-hidden="true">
+            <td />
+            <td>
+              <span className="lr-change-axis">
+                <span>less</span>
+                <span>0</span>
+                <span>more</span>
+              </span>
+            </td>
+            <td />
+          </tr>
         </tbody>
       </table>
     </figure>
