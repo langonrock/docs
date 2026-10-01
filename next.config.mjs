@@ -10,7 +10,10 @@ const agentLinks = [
   '</.well-known/agent-skills/index.json>; rel="describedby"; type="application/json"',
 ].join(', ');
 
-const movedPages = [['/docs/guides/backups', '/docs/database/maintenance']];
+const movedPages = [
+  ['/docs/guides/backups', '/docs/database/maintenance'],
+  ['/docs/architecture/cross-platform', '/docs/architecture/runtime'],
+];
 
 /** @type {import('next').NextConfig} */
 const config = {
