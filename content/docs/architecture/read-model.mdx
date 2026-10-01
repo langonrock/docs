@@ -6,28 +6,35 @@ icon: Layers
 
 ## Separate what humans write from what agents read
 
-OKF fuses the two, and that is where it loses on efficiency. Humans write Markdown. A compiler emits
-a compact artifact. The OKF source stays intact, so `okflint`, the visualizer and Obsidian keep
-working on the same folder.
+OKF fuses the two, and that is where it loses on efficiency. Humans write Markdown. The database
+keeps that Markdown exactly as written and, on every commit, compiles it into a compact artifact
+an agent reads instead. Export hands the Markdown back byte for byte, so `okflint`, the visualizer
+and Obsidian keep working on the folders it came from and goes to.
+
+The read model is the part of the engine that did not change when it became a database. Given the
+same documents, the old engine and the new one produce identical manifests, whole and per bundle,
+and identical results for every checked read and search. The [engine
+benchmarks](/docs/architecture/engine-benchmarks) compare them byte for byte.
 
 ## A dense manifest that fits in context
 
-Budget 10 to 15 tokens per concept. Then the agent makes one hop: read the manifest, know exactly
-which three files it needs, fetch them in parallel. No traversal.
+The agent makes one hop: read the manifest, know exactly which three concepts it needs, fetch them
+in one call. No traversal.
 
-Drop YAML for a positional encoding, and declare the keys once in a header.
+Drop YAML for a positional encoding, and declare the keys once in a header. This is the manifest
+of the three documents in the [quickstart](/docs/getting-started/quickstart):
 
 ```
 # tenant: acme
 # bundles: ops sales
 id	bundle	kind	status	grain	summary	links
+deploy	ops	runbook	-	-	How to ship the orders service.	-
+customers	sales	bigquery_table	deprecated	customer_id	Registered customers, including churned.	-
 orders	sales	bigquery_table	-	order_id	One row per completed customer order.	customers
-customers	sales	bigquery_table	deprecated	customer_id	Registered customers, including churned.	orders
-rev_net	sales	metric	-	-	gross - refunds - tax	orders payments
 ```
 
-Against the YAML equivalent this cuts structural overhead per record by roughly four to five times.
-The `links` column carries the whole graph, so the agent plans traversal without opening anything.
+The `links` column carries the whole graph, so the agent plans its reads without opening anything.
+On the reference catalogue a row costs about 41 tokens.
 
 Constraints the compiler enforces: summaries are single-line, contain no tabs, and are truncated at
 120 characters by default.
@@ -42,34 +49,37 @@ status, or one marked `current`, gets `-`. `deprecated` and `draft` are what an 
 *before* choosing the concept, which is what earns a cell paid for on every turn. `sources`,
 `generated`, `verified` and `stale_after` are all real, and all cheaper to fetch on demand.
 
+Nothing the database adds reaches the row. Source hashes, revision ids and commit times live in
+the database's own records, so committing never widens the manifest an agent pays for.
+
 ## Section-addressable shards
 
-`get(id, section)` returning one slice costs a fraction of the full document.
+`get(id, section)` returning one slice costs a fraction of the full document. On the reference
+catalogue a whole concept costs 445 tokens and its `schema` section 213. On an RFC, which numbers
+every subsection, it is 23,321 against 388.
 
 An earlier draft invented `@schema` and `@joins` markers and assumed an offline LLM pass would
 rewrite prose into them. That turned out to be unnecessary. Markdown headings already are the
 section markers, and real bundles use them. Every Google sample concept carries `# Schema`,
 `# Common query patterns`, `# Metrics`.
 
-The compiler slugs each heading and records its byte range, so section addressing works on
-unmodified OKF with no model in the build path.
+The compiler slugs each heading and records where its section starts and ends, so section
+addressing works on unmodified OKF with no model in the build path.
 
 <Callout title="Fenced code blocks are excluded first">
   A `# comment` line inside a SQL or shell example is not a heading, and these bundles are full of
   them.
 </Callout>
 
-Measured on the GA4 sample: fetching the `events_` concept whole costs 9,419 bytes, fetching
-`--section schema` costs 5,486. The saving grows with document size, and it costs nothing to have.
-
 ## Prompt caching is the multiplier
 
-Put the manifest at the front of the prompt. It stays stable across turns, so it hits cache at
-roughly 10% of the cost.
+Put the manifest at the front of the prompt. It stays stable across turns, so every later call
+re-reads it at the cache rate, which the benchmarks bill at 10% of the full price.
 
 That makes byte-determinism a hard requirement on the compiler rather than a nicety. Identical
-input must produce identical output, or every rebuild invalidates the cache and the multiplier
-disappears.
+input must produce identical output, or every commit invalidates the cache and the multiplier
+disappears. A commit that leaves the compiled bytes unchanged, such as an edit to a navigation file,
+reuses the snapshot it already had, so the manifest an agent holds stays valid.
 
 Concretely:
 
@@ -79,27 +89,33 @@ Concretely:
 - statistics reported to stderr rather than embedded
 - sorting by plain code-unit comparison, never `localeCompare`, which varies by machine
 
-Rough order of magnitude for 500 concepts:
+What that buys, over twenty questions on 500 concepts:
 
-| Approach                  | Effective tokens | Round trips |
-| ------------------------- | ---------------- | ----------- |
-| Naive OKF navigator       | ~5.5k            | 4 to 5      |
-| Compiled manifest, cached | ~1.4k            | 2           |
+| Path                          | Billed tokens | Calls |
+| ----------------------------- | ------------: | ----: |
+| OKF index navigator           |       116,357 |    30 |
+| Manifest in the cached prefix |        64,355 |    17 |
 
 The win comes from replacing model-driven traversal with deterministic selection in one hop, not
-from TSV being shorter than YAML.
+from TSV being shorter than YAML. On that corpus the manifest is 20,549 tokens against 16,575 for a
+well-kept `index.md`.
 
 ## Sorting by bundle is what makes narrowing cheap
 
 Rows arrive grouped by bundle, so one bundle is one contiguous run of lines. The reader hands back
 a byte range instead of parsing and reassembling. It is exactly as deterministic as sorting by id
-alone, and it is what makes a [large tenant](/docs/guides/large-tenants) usable.
+alone, and it is what makes a [large tenant](/docs/guides/large-tenants) usable: at 20,000 concepts
+one bundle is 20,486 tokens against 835,922 for the whole manifest.
 
-## Scaling break point
+## When the whole manifest stops paying
 
-The manifest stops fitting somewhere around 2,000 concepts, call it 25k tokens. Past that, shard by
-domain. A domain-level manifest of 50 lines stays cached, then the domain manifest loads. Still two
-hops.
+At about 41 tokens per concept, the whole manifest stops being worth reading somewhere past a few
+thousand concepts. Narrow instead of paginating, to one bundle's slice or to a search.
+
+The MCP server makes that call per tenant. At startup it measures the manifest, estimates one search
+result from the manifest's own row lengths, and adds one sentence to the `manifest` tool's
+description saying which strategy is cheaper. The [benchmarks](/docs/architecture/benchmarks) show
+where the crossover lands.
 
 ## Retrieval takes the model out of the loop
 
@@ -130,72 +146,39 @@ URLs used to contribute, so a summary match has to be told apart from an inciden
 The concept's own names — id and title — count **four times**, because a query that names a
 concept should land on the concept itself, not on a neighbour that mentions it in passing.
 
-Both values were swept measuring hit rate at 8 for queries that name a concept. The cell weight
-was swept over the 500-concept catalogue; the name weight over three corpora at once:
-
-| Name weight | reference MRR | handbook hit rate                |
-| ----------- | ------------: | -------------------------------- |
-| 2           |          0.39 | 95%                              |
-| 4           |          0.43 | 95%, MRR 0.83                    |
-| 6+          |     no change | no change outside noise          |
-
-Four is the smallest value that captures the gain. The recall cost that caps the cell weight at
-two does not apply here: boosting a concept's own name never hurt describing queries in the sweep.
+Both values come from sweeps recorded next to the constants. For the cell weight, hit rate at 8 for
+queries that name a concept went from 65% unweighted to 75% at two, with no further gain above it,
+and weights of four and up started costing recall on queries that describe a concept instead of
+naming one. The name weight was swept over the reference, handbook and spec corpora. Hit rate is
+already captured at two, but the top position keeps improving up to four — reference MRR 0.39 at
+two, 0.43 at four — and nothing moves outside noise above that. Describing queries never moved, so
+the recall cost that caps the cell weight does not apply to a concept's own name.
 
 ### Cap the expansion
 
 The first version expanded every link of every hit, which reads fine on a small fixture and falls
-apart on real data. On the Stack Overflow sample one dataset row links to sixteen tables, so eight
-hits became twenty-six rows, most of the manifest.
+apart on real data. On the Stack Overflow sample one dataset row has sixteen outgoing links, so
+eight hits became twenty-six rows, most of the manifest.
 
 Search that does not narrow is worse than reading the manifest, because it costs a round trip to
-learn nothing. Expansion is now capped at `k` and ranked by how many hits point at a target, which
-took `--k 3` from 85% of the manifest down to 31%.
-
-### Anchor on the named concept
-
-A question that names `orders_b1` contains that id. The tokenizer above splits it into `orders`
-and `b1` and loses it, which is why named queries sat at 70 percent while describing ones sat at
-95. The anchor does not lose it: a query token equal to an id, or a run of words equal to a
-frontmatter title, seeds a personalized PageRank over the undirected link graph — restart 0.5,
-twenty rounds, deterministic — and the walk's order is fused with the lexical one by reciprocal
-rank. The named concept and its neighbours come first; the rest of the query decides the tie. A
-name two concepts share is dropped rather than guessed, so an anchor is never wrong, only absent.
-
-With no anchor the walk has no seed and nothing changes, byte for byte. That is what keeps a
-describing query exactly as cheap and exactly as ranked as before.
-
-The fusion constant is 5, not the textbook 60. With a dozen rows per list, 60 scores every rank
-almost the same and the walk's order is lost, and the relation harness showed it:
-
-| RRF constant | Two-hop lineage recall | Named hit rate |
-| -----------: | ---------------------: | -------------: |
-|           60 |                    33% |            70% |
-|           20 |                    33% |            80% |
-|           10 |                    61% |            80% |
-|            5 |                    89% |            80% |
-|            2 |                    89% |            80% |
-
-An anchored query runs one to four milliseconds instead of a third of one, which is the walk, and
-adds one `# anchors:` line to the result saying what was recognised. Described queries name
-nothing and stay at 95 percent; their mean reciprocal rank moves from 0.40 to 0.39 on the catalogue
-and from 0.64 to 0.61 on the recipes, where a title word inside a description occasionally anchors
-somewhere else. Every other profile is unchanged to the digit.
+learn nothing. Expansion is now capped at `k` and ranked by how many hits point at a target.
 
 ### The index is not persisted
 
-Measured build times: 22 ms at 500 concepts, 193 ms at 5,000, 674 ms at 20,000. The build streams
-every body off a single read of the snapshot's blob region and packs postings into typed arrays,
-which is what keeps a 20,000-concept tenant under a gigabyte of process memory.
+Measured build times: 19 ms at 500 concepts, 152 ms at 5,000, 578 ms at 20,000. The build streams
+every body off a single read of the snapshot's blob region and packs postings into typed arrays.
+The index takes 1.1 MB of heap at 500 concepts, 8.1 MB at 5,000 and 32 MB at 20,000, and a fresh
+process that opens 20,000 concepts, builds the index and searches peaks at 0.36 GB resident.
 
-Persisting that would buy a few hundred milliseconds once per snapshot in exchange for a
+Persisting it would buy a few hundred milliseconds once per snapshot in exchange for a
 serialization format, invalidation logic, and its own collector. It is built in memory and cached
-by snapshot digest instead, which makes a rebuilt tenant get a fresh index with no invalidation
-code to get wrong — and `serve` rebuilds it right after each sync, so the first search after a
-save does not pay it either.
+by snapshot digest instead, which gives a new snapshot a fresh index with no invalidation code to
+get wrong. It is also rebuilt when the date changes, so a `stale` status appears on the day it
+falls due. `serve` rebuilds the index right after each sync, so the first search after a save does
+not pay for it.
 
-Query time is 2.13 ms at 20,000 concepts, most of it the `pos` scan over the top hits' bodies
-rather than the ranking, and 4.3 ms when the query anchors and walks. There was nothing to buy.
+Query time is 1.65 ms at 20,000 concepts, including the scan of the top hits' bodies that computes
+`pos`. There was nothing to buy.
 
 ## Open questions
 
@@ -204,13 +187,7 @@ rather than the ranking, and 4.3 ms when the query anchors and walks. There was 
   `--strict` enforces.
 
 Whether per-field weighting was worth it is no longer open: names weigh four, other cells weigh
-two, and the sweep behind each number is recorded next to the constant. Two candidate upgrades
-were measured and rejected on the same harness — expanding the link graph inbound as well as
-outbound (no gain on any profile) and light plural stemming (a ten-point win on the catalogue paid
-for by a five-point loss on the recipes). What replaced the inbound expansion is the anchor: the
-same graph, walked from the concept the query names rather than from every hit.
-
-<Callout title="DESIGN.md is behind the code here">
-  It still lists field weighting as undecided. The sweeps settled it: `FIELD_WEIGHT = 2` and
-  `NAME_WEIGHT = 4` ship with tests covering them.
-</Callout>
+two, and the sweep behind each number is recorded next to the constant. Light plural stemming was
+measured and rejected on the same harness. It lifted the identifier-heavy catalogue by five points
+of hit rate and 0.12 of MRR, and cost rank quality on every prose corpus: the recipes lost five
+points and 0.06 of MRR.

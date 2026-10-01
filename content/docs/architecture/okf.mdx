@@ -1,6 +1,6 @@
 ---
 title: What OKF is
-description: The format this project compiles, and the state of the ecosystem around it.
+description: The format this project stores and compiles, and the state of the ecosystem around it.
 icon: FileText
 ---
 
@@ -30,10 +30,7 @@ timestamp: 2026-05-28T14:30:00Z
 ---
 ```
 
-The body is ordinary Markdown. Links between files form the knowledge graph. The spec leaves the
-_kind_ of a relationship to the prose around the link rather than the link itself, and lists typed
-relations as out of scope; the compiler reads the kind off the heading above that prose, so a link
-under `# Joins` is a `joins` edge with no convention imposed on the author.
+The body is ordinary Markdown. Links between files form the knowledge graph.
 
 ```
 sales/
@@ -45,8 +42,9 @@ sales/
 ```
 
 Only `type` is required. Everything else is standardized but optional, and bundles may add their
-own keys. `index.md` gives navigation and `log.md` gives history. Both optional, and langonrock
-skips both, since they are navigation rather than knowledge.
+own keys. `index.md` gives navigation and `log.md` gives history. Both are optional. langonrock
+stores both exactly as written and exports them again, but never compiles either into a concept,
+since they are navigation rather than knowledge.
 
 ## What v0.2 added
 
@@ -105,8 +103,9 @@ trusted registry.
 | `hermes-okf`        | Filesystem memory storing agent decisions as concepts      |
 | `okf-skill`         | A single-file agent skill for Claude Code and Cursor       |
 
-Obsidian works as-is, since a bundle is already a vault. langonrock keeps that true by never
-touching your source folder.
+Obsidian works as-is, since a bundle is already a vault. langonrock keeps that true by treating a
+folder as interchange: `import` reads one, `export` writes a new one, and a native tenant never
+writes back into a folder it imported.
 
 ### LangGraph and LangChain
 
