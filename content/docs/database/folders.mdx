@@ -1,0 +1,148 @@
+---
+title: Import, watch and export
+description: Bring Markdown folders in with conflict detection, keep a tenant following a folder, and write exact Markdown back out.
+icon: FolderSync
+---
+
+The database holds the documents. A folder is interchange: `import` reads one into a commit,
+`watch` repeats that whenever the folder changes, and `export` writes the current documents to a
+new folder. Nothing writes back into a folder you import, so an editor, `git` or Obsidian can keep
+working on it while the database follows.
+
+## What a folder looks like
+
+```
+sources/acme/
+  sales/
+    tables/orders.md
+    tables/customers.md
+  ops/
+    runbooks/deploy.md
+```
+
+Every immediate subdirectory is one bundle, and directories whose name starts with a dot are
+skipped. Inside a bundle, every `.md` file is a document; other files are ignored, and so is any
+path with a segment that starts with a dot. File names follow the same rules as any document path,
+so a name the database would refuse fails the import instead of being renamed.
+
+`index.md` and `log.md` are navigation documents. They are stored and exported exactly, and they
+never become concepts.
+
+## import
+
+```sh
+langonrock import sources/acme --data ./data --tenant acme
+```
+
+```
+snapshot cd9078b9af0b (new), 2 bundles [ops sales], 3 concepts, 1236 bytes on disk
+```
+
+`sync <dir>` is the same command under its earlier name. `put <dir>` imports a single directory as
+one bundle, named after the directory unless `--bundle` says otherwise. The status line goes to
+stderr, so stdout stays clean for piping.
+
+The first import creates the tenant. Every later one compares and commits only what changed, and an
+import that finds nothing to do commits nothing and reports the snapshot as `(reused)`.
+
+### How a second import decides
+
+An import compares three versions of each document: what the folder has now, what the database has
+now, and what the folder had at the last import from that location. The last of those is a
+baseline the database keeps per folder, so the comparison survives restarts.
+
+| Folder since last import | Database since last import | Result                                   |
+| ------------------------ | -------------------------- | ---------------------------------------- |
+| unchanged                | unchanged or changed       | nothing; a database edit is kept         |
+| changed                  | unchanged                  | the folder's version is committed        |
+| changed                  | changed to the same bytes  | nothing to do                            |
+| changed                  | changed differently        | the import fails and nothing commits     |
+
+"Changed" includes created and deleted. A file deleted from the folder is deleted from the database
+on the next import, unless the database changed it since the last import, which is a conflict like
+any other. Documents that were never in the folder, written through a transaction or the API, are
+not the import's business and stay where they are. A bundle deleted in the database stays deleted
+through imports that did not change its files, and an empty bundle stays empty rather than
+disappearing.
+
+A conflict fails the whole import atomically and names the document:
+
+```
+folder and database both changed sales/tables/orders.md; reconcile the source hashes before importing
+```
+
+The import cannot know which side is right, so it does not guess. Make the two agree, by saving the
+version you want into the folder or writing it into the database, and import again.
+
+## watch
+
+```sh
+langonrock watch sources/acme --data ./data --tenant acme
+```
+
+`watch` runs the same import whenever the folder changes. Filesystem events are debounced by 200 ms
+(`--debounce`), and a full rescan runs every 30 seconds (`--rescan`), because watch events are a
+hint on every platform: they coalesce, they drop under bursts, and they run out. Paths with a
+segment that starts with a dot are ignored, so `.git` and `.obsidian` churn never triggers an
+import.
+
+Each import prints its status line. A conflict prints an error and the watcher keeps running, so
+the next import after you reconcile picks it up:
+
+```
+error: folder and database both changed sales/tables/customers.md; reconcile the source hashes before importing
+watching sources/acme for tenant acme
+```
+
+If you run the daemon, skip this command. `serve` starts the same watcher for every tenant mapped
+in `sources.json`, and for `--watch <dir> --tenant <id>`; running both puts two watchers on one
+tenant. `sources.json` is only needed for that, since a tenant the engine owns takes writes without
+any folder. See [Running a server](/docs/guides/running-a-server).
+
+## export
+
+```sh
+langonrock export ./exported-acme --data ./data --tenant acme | jq
+```
+
+```json
+{
+  "revision": "496744db3e3c76ce67cb8ba028b15fc6558ed3f3a5f3cd1b7827c628df0aab57",
+  "destination": "/home/me/exported-acme",
+  "files": 3,
+  "bytes": 1115
+}
+```
+
+`export` writes the current revision as a folder of bundles, and the bytes are the ones that went
+in: frontmatter with every key the compiler ignores, CRLF line endings, byte-order marks, Unicode,
+nested paths, navigation documents, and an empty directory for an empty bundle. Exporting the
+folder imported above gives back a tree that `diff -r` finds identical to the original, and
+importing that export into a fresh tenant of the same name publishes the same snapshot,
+`cd9078b9af0b`.
+
+The destination must not exist:
+
+```
+export destination already exists; choose a new directory to preserve existing files
+```
+
+The folder is built under a temporary name beside the destination and renamed into place, so a
+destination that exists is complete. Files are written owner-only. `export` always writes the
+current revision; to export an older state, [restore it](/docs/database/history) first.
+
+## Text
+
+Sources must be valid UTF-8 and well-formed Unicode. Invalid bytes are refused before anything is
+published rather than replaced during decoding, so a round trip never changes a byte silently.
+
+## Tenants from before the engine
+
+`import`, `sync` and `put` refuse a tenant that still has the layout earlier versions wrote:
+
+```
+legacy tenant: migrate with original sources before using database transactions
+```
+
+`watch` on such a tenant keeps compiling from its folder, as it did before.
+[Migrating a legacy tenant](/docs/database/migration) moves it into the database.

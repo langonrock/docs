@@ -1,0 +1,209 @@
+---
+title: Migrating a legacy tenant
+description: Move a tenant written before the native engine into it, with a dry run first and a way back.
+icon: ArrowRightLeft
+---
+
+import { Step, Steps } from 'fumadocs-ui/components/steps';
+
+A legacy tenant is one compiled by langonrock before it had its own engine. Its folder of Markdown
+is the authority, and the store holds only compiled snapshots of it. Migration reads that folder
+into the database, proves the result matches what the tenant already served, and makes the
+database the authority. Nothing migrates on its own: a legacy tenant stays legacy until you run
+`migrate`.
+
+## Recognising one
+
+A legacy tenant has a `current` file and no `HEAD`:
+
+```
+tenants/acme/
+  current
+  log.jsonl
+  snapshots/
+```
+
+A tenant the engine owns has a `HEAD`, and every new tenant gets one from its first commit.
+
+## What works before you migrate
+
+| Keeps working                                        | Refuses until migrated            |
+| ---------------------------------------------------- | --------------------------------- |
+| `manifest`, `get`, `search`, `snapshot`              | `transact`, `history`, `restore`  |
+| `watch` compiling from the folder                    | `import`, `sync`, `put`           |
+| source edits, for a tenant mapped in `sources.json`  |                                   |
+| `gc`, with the age `--grace` that legacy stores use  |                                   |
+
+The refusal is the same everywhere, and a 409 with `"code": "LEGACY_TENANT"` over HTTP:
+
+```
+legacy tenant: migrate with original sources before using database transactions
+```
+
+A source write to a legacy tenant that has no `sources.json` entry is refused too, because compiling
+an empty folder over it would replace its manifest with nothing.
+
+## Why it needs the original folder
+
+A legacy snapshot holds the compiled read model, and compiling throws information away: frontmatter
+is reduced to the cells the manifest needs, and navigation files never enter it. The engine keeps
+exact sources, so migration cannot start from the snapshot. It compiles the original folder and
+compares the result with the snapshot the tenant is serving before it publishes anything.
+
+## Before you start
+
+- Stop the legacy daemon, every watcher, every writer and every source editor. A legacy writer
+  still holding its lock is refused with
+  `a legacy writer is active; stop legacy writers before migrating`.
+- Copy the store directory and the original folder somewhere else. Migration does not modify the
+  folder and keeps the legacy files, but a copy is what makes the rollback below simple.
+- Use the layout the tenant was compiled from. A folder of bundles is the default. A tenant stored
+  with `put`, one directory as one bundle, needs the same `--bundle <name>`. A tenant compiled with
+  a non-default `--summary-width` needs the same width.
+
+## Migrate
+
+<Steps>
+<Step>
+
+### Dry run
+
+```sh
+langonrock migrate sources/acme --data ./data --tenant acme --dry-run | jq
+```
+
+```json
+{
+  "alreadyMigrated": false,
+  "dryRun": true,
+  "snapshot": "cd9078b9af0b1d912a9e6e0c8c12d409be3aac3394085d56dc618458b5e23ad8",
+  "concepts": 3
+}
+```
+
+The dry run compiles the folder and checks it against the legacy snapshot: the manifest byte for
+byte, every concept's id, sections, title and stale date, and every body. It publishes nothing. A
+mismatch names what differs:
+
+```
+original sources do not reproduce the legacy manifest; restore matching originals and summary width before migration
+original sources do not reproduce the legacy concepts and sections
+original source body differs from legacy concept <id>
+```
+
+</Step>
+<Step>
+
+### Migrate
+
+```sh
+langonrock migrate sources/acme --data ./data --tenant acme | jq
+```
+
+```json
+{
+  "alreadyMigrated": false,
+  "dryRun": false,
+  "snapshot": "cd9078b9af0b1d912a9e6e0c8c12d409be3aac3394085d56dc618458b5e23ad8",
+  "concepts": 3,
+  "revision": "bb87d48285cf586b1a4c9eee72e92e84a7427af22a001ec1406a1a810cfeb1df"
+}
+```
+
+Under the writer lock, migration checks the legacy pointer and re-hashes the folder before it
+publishes. If either changed since the comparison, it stops instead of publishing a state nobody
+compared:
+
+```
+legacy snapshot changed during migration; verify originals and retry
+original sources changed during migration; stop editing and verify them again
+```
+
+</Step>
+<Step>
+
+### Verify
+
+```sh
+langonrock verify --data ./data --tenant acme | jq
+```
+
+```json
+{
+  "ok": true,
+  "headHash": "feeaaa368e66601bd15d2cfa473111c3dafbb8c8dcff3885ef5c34ddfcee2d0f",
+  "verifiedRevisions": [
+    "bb87d48285cf586b1a4c9eee72e92e84a7427af22a001ec1406a1a810cfeb1df"
+  ],
+  "issues": []
+}
+```
+
+The tenant now has one revision, with no parent. Its snapshot id is not the legacy one, because the
+engine writes its own snapshot format, with a checksum per body. The manifest inside it is byte for
+byte the one the legacy tenant served, so an agent's prompt cache survives the move; only an
+`ETag` comparison sees a new snapshot.
+
+</Step>
+</Steps>
+
+Running `migrate` again on a migrated tenant is safe and reports the existing result:
+
+```sh
+langonrock migrate sources/acme --data ./data --tenant acme | jq -c '{alreadyMigrated, revision}'
+```
+
+```
+{"alreadyMigrated":true,"revision":"bb87d48285cf586b1a4c9eee72e92e84a7427af22a001ec1406a1a810cfeb1df"}
+```
+
+A failure before publication leaves the legacy tenant exactly as it was, still serving. A failure
+around publication can leave the outcome unknown; inspect the tenant, with `verify` and `history`,
+before running `migrate` again. On a tenant with no legacy pointer at all, `migrate` refuses with
+`no legacy snapshot to migrate; use import for a new database`.
+
+## What it keeps
+
+The original folder is only read. In the tenant directory, `current`, the legacy snapshots and
+`log.jsonl` stay beside the new layout:
+
+```
+tenants/acme/
+  current
+  HEAD
+  imports/
+  log.jsonl
+  retention.lock
+  revisions/
+  snapshots/
+  sources/
+  staging/
+  writer.lock
+```
+
+Collection never removes the snapshot `current` points at. The previous executable, which reads
+`current` and ignores the rest, still prints the same manifest from this directory. The folder
+becomes a tracked import location: later imports from it follow the three-way rule in
+[Import, watch and export](/docs/database/folders).
+
+## Rolling back
+
+**Before any native write.** Stop every process. Put the copy of the store you made before
+migrating back in place, preferably as a separate directory rather than by editing the migrated
+one, and run the previous executable against it with the original folder.
+
+**After native writes.** The old `current` does not have them, so reusing it would discard them.
+Export the revision you want to keep, compile that export into a fresh legacy store with the
+previous executable, check its manifest and a few documents, and only then restart clients.
+
+```sh
+langonrock export ./rollback-acme --data ./data --tenant acme
+```
+
+## After migrating
+
+Everything in this section applies: [transactions](/docs/database/transactions),
+[history and restore](/docs/database/history), [durability](/docs/database/durability) and
+[collection](/docs/database/maintenance). `gc --grace` applies to legacy tenants only. A
+`sources.json` entry is no longer needed to write; keep it only if you want the daemon to keep
+importing the folder.
