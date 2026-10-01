@@ -39,8 +39,8 @@ const targets: Target[] = [
   {
     id: 'source',
     label: 'From source',
-    command: `git clone https://github.com/${gitConfig.user}/${gitConfig.repo} && cd ${gitConfig.repo} && bun install`,
-    note: 'Needs Bun 1.3 or newer. The bin entry points straight at src/cli.ts, so there is no build step before running it.',
+    command: `git clone https://github.com/${gitConfig.user}/${gitConfig.repo} && cd ${gitConfig.repo} && bun install && bun run build:native`,
+    note: 'Needs Bun 1.4.2 or newer and a C compiler, or an MSVC developer environment on Windows. The bin entry points straight at src/cli.ts once the native adapter is built.',
   },
 ];
 
@@ -113,7 +113,7 @@ export function Install() {
         >
           the quickstart
         </Link>{' '}
-        to compile your first tenant.
+        to import your first folder.
       </p>
     </div>
   );

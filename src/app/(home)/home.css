@@ -443,7 +443,7 @@
   font-weight: 400;
 }
 
-/* The read path ----------------------------------------------------------- */
+/* The lifecycle ----------------------------------------------------------- */
 
 /*
  * A step is the page's own two-column rhythm: the number and its verb sit in the
@@ -884,6 +884,25 @@
   font-size: 0.8125rem;
   line-height: 1.6;
   color: var(--lr-faint);
+}
+
+/* What a commit promises -------------------------------------------------- */
+
+/*
+ * The cost section's split, for the same reason: the contract in prose on the
+ * left, and on the right the directory it is made of, framed as a figure so the
+ * listing reads as evidence rather than as decoration.
+ */
+.lr-promise {
+  display: grid;
+  gap: 3rem;
+}
+@media (min-width: 72rem) {
+  .lr-promise {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 34rem);
+    gap: 5rem;
+    align-items: start;
+  }
 }
 
 /* The editor -------------------------------------------------------------- */

@@ -1,26 +1,32 @@
 'use client';
 
 import { AnimatePresence, MotionConfig, motion } from 'framer-motion';
-import { Copy, FolderSymlink, Layers, Network, Scissors, Snowflake } from 'lucide-react';
+import { FolderSymlink, HardDrive, HistoryIcon, Layers, Scissors, Snowflake } from 'lucide-react';
 import { useState } from 'react';
 import { cn } from '@/lib/cn';
 
 const heading = 'What you get';
 const description =
-  'Six things that change once the store is compiled, and the mechanism behind each one.';
+  'Six things that change once what your agents know lives in a database, and the mechanism behind each one.';
 
 const features = [
   {
-    icon: FolderSymlink,
-    title: 'Nothing you already have moves',
+    icon: Layers,
+    title: 'Related edits land together or not at all',
     description:
-      'langonrock compiles your Markdown, it does not take it over. Frontmatter is optional and OKF conformance is what --strict enforces, so okflint and the visualizer keep working on the same folder.',
+      'A transaction carries up to 1,000 writes and deletes. Each one names the hash of the version it replaces, and if any of them is stale, nothing is published. Twenty-five new documents commit in 94 ms at 5,000 concepts.',
   },
   {
-    icon: Snowflake,
-    title: 'A recompile does not cost you the cache',
+    icon: HistoryIcon,
+    title: 'Every commit can be taken back',
     description:
-      'Identical input produces identical bytes, so syncing after every edit leaves the agent’s cached prompt prefix intact instead of billing you to rebuild it.',
+      'History lists the retained revisions, and restore publishes an old one as a new commit, guarded by the revision you expect to replace. Ten revisions are kept by default. A pruned revision is gone.',
+  },
+  {
+    icon: HardDrive,
+    title: 'A returned write is on disk',
+    description:
+      'Every file is flushed before HEAD is swapped, so a normal return is a durable commit. A failure after the swap is reported as indeterminate, with the revision to check, rather than guessed at. Tested by killing processes, not by cutting power.',
   },
   {
     icon: Scissors,
@@ -29,22 +35,16 @@ const features = [
       'Ask for the schema of a table by its own Markdown heading, hand find a phrase, or follow a search hit’s pos offset to the densest passage. A catalogue read drops from 594 tokens to 213; a novel chapter from 3,244 to 513.',
   },
   {
-    icon: Layers,
-    title: 'One call, however many concepts',
+    icon: Snowflake,
+    title: 'Editing a body does not cost you the cache',
     description:
-      'Pass every id you need at once instead of paying an inference turn per hop. The cost of a batched fetch is flat from 500 concepts to 20,000.',
+      'Identical documents compile to identical bytes, so an edit that keeps a concept’s description and links changes no row of the manifest, and the agent’s cached prompt prefix survives it. A row that does change invalidates the cached prefix that holds it.',
   },
   {
-    icon: Network,
-    title: 'Name a concept and get its neighbourhood',
+    icon: FolderSymlink,
+    title: 'Your Markdown comes back out exactly',
     description:
-      'A query that names a concept by id or title anchors the ranking on its links: a personalized PageRank from the named concepts, fused with BM25. Named lookups go from 70% to 85% in the top eight and “what depends on X” from 40% to 72% recall, at the same token cost. No anchor, nothing changes, and no model anywhere in the path.',
-  },
-  {
-    icon: Copy,
-    title: 'Restore is a file copy',
-    description:
-      'Snapshots are named by their own hash, so a backup is a file copy, a restore is a file copy back, and rollback is a side effect rather than a feature you have to operate.',
+      'Import tracks what each folder looked like, so a re-import never overwrites a database edit and a file changed on both sides fails instead of picking a winner. Export writes the current revision back out, frontmatter and line endings intact.',
   },
 ];
 

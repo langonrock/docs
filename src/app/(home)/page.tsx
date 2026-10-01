@@ -8,9 +8,9 @@ import { Editor } from './editor';
 import { Features } from './features';
 import { GetStarted } from './get-started';
 import { Install } from './install';
-import { ReadPath } from './read-path';
+import { Lifecycle } from './lifecycle';
+import { CommitPromise } from './promise';
 import { SiteFooter } from './site-footer';
-import { Strategies } from './strategies';
 import './home.css';
 
 export const metadata: Metadata = {
@@ -42,8 +42,8 @@ export default function HomePage() {
             <div>
               <h1 className="lr-display">
                 {appName} is a{' '}
-                <span className={`lr-pixel ${pixel.className}`}>faster, cheaper</span> document
-                database for AI agents.
+                <span className={`lr-pixel ${pixel.className}`}>document database</span> for what
+                your agents know.
               </h1>
 
               <p className="lr-prose lr-lead mt-7">{siteLead}</p>
@@ -60,9 +60,9 @@ export default function HomePage() {
 
       <Features />
 
-      <ReadPath />
+      <Lifecycle />
 
-      <Strategies />
+      <CommitPromise />
 
       <Cost />
 

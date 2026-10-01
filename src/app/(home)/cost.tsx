@@ -11,7 +11,7 @@ import {
 } from '@/components/ui/chart';
 import { Legend } from './charts';
 
-const heading = 'What it costs, and where it loses';
+const heading = 'What reading costs, and where it loses';
 const description =
   'Twenty fixed questions over the same corpus. Both paths pay for delivering the same concepts. The baseline is the OKF reference consumption pattern, running the same BM25 over the raw Markdown with perfect navigation and never a wrong turn.';
 
@@ -62,16 +62,24 @@ export function Cost() {
             </p>
 
             <p className="lr-prose mt-5">
+              Which way to read depends on the corpus, not on a setting. The manifest is paid once a
+              session and a search once a question, so the crossover is the ratio between the
+              manifest and one search result, and over twenty questions it lands near twenty. The
+              RFCs sit at 2 and read cheaper through the manifest. Mrs Beeton&rsquo;s recipes sit at
+              101 and read cheaper through search. The MCP server measures the manifest at startup
+              and writes the verdict into the tool&rsquo;s description.
+            </p>
+
+            <p className="lr-prose mt-5">
               Compiling used to cost ranking. The frontmatter the compiler strips repeated the
               concept id in its <code className="lr-mono">resource</code> and{' '}
               <code className="lr-mono">sources</code> URLs, which happened to help the ranker.
               Indexing each concept&rsquo;s own names gave it back. Its id and its frontmatter title
               now weigh above the other fields, and hit rate lands at 75% against the
-              baseline&rsquo;s 70%, mean reciprocal rank at 0.44 against 0.43. Queries that describe
-              a concept instead of naming it move the same way. Mrs Beeton&rsquo;s recipes go from
-              55% on the raw files to 80% here. What still loses, narrowly, is ranking on plain
-              prose. The raw files keep a slightly better top position on the novels, 0.72 mean
-              reciprocal rank against 0.69. The session cost no longer follows it, because{' '}
+              baseline&rsquo;s 70%, mean reciprocal rank at 0.44 against 0.43. What still loses,
+              narrowly, is ranking on plain prose. The raw files keep a slightly better top position
+              on the novels, 0.72 mean reciprocal rank against 0.69. The session cost no longer
+              follows it, because{' '}
               <code className="lr-mono">find</code> gives prose the sub-document addressing its
               missing headings never could. A 3,244-token chapter read becomes a 513-token window.
             </p>

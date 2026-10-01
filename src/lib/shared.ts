@@ -1,10 +1,10 @@
 export const appName = 'Lang on Rock';
-export const siteTagline = 'a document database for AI agents';
+export const siteTagline = 'a document database for what your agents know';
 export const siteUrl = 'https://langonrock.com';
 export const siteDescription =
-  'A document database for AI agents. No embeddings, no vector database. langonrock compiles Open Knowledge Format bundles into a read model an agent reads by id for 45% fewer tokens, with retrieval that matches reading the raw files.';
+  'A document database for what your agents know. langonrock stores Markdown in its own engine, with atomic commits, history and restore, and compiles it into a read model an agent reads by id for 45% fewer tokens. No SQL, no embeddings, no vector database.';
 export const siteLead =
-  'Your agent answers the same questions for 45% fewer tokens and thirteen fewer round trips. Over a set of RFCs it saves 98%, and it finds the right concept at least as often as reading the raw files. Instead of crawling your Markdown it reads a compiled index and asks for the one section it needs. No embeddings to generate, no vector database to run. One binary, local or over the network.';
+  'Markdown in, atomic commits, history and restore, and a compiled read model an agent reads for 45% fewer tokens and thirteen fewer round trips. Own engine, one binary, no SQL.';
 export const docsRoute = '/docs';
 export const docsImageRoute = '/og/docs';
 export const docsContentRoute = '/llms.mdx/docs';

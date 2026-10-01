@@ -40,9 +40,10 @@ export function Editor() {
               ships inside it, so there is nothing else to install.
             </p>
             <p className="lr-prose mt-4">
-              It derives no ids, resolves no links and reproduces no lint rules. It writes the source
-              Markdown and lets the watcher recompile, so the editor and the store cannot drift
-              apart.
+              It derives no ids, resolves no links and reproduces no lint rules: it asks the server
+              and shows the answer, so the two cannot drift apart. A save goes through the same
+              source routes as any other client, one document at a time, and names the version it
+              replaces, so an edit made elsewhere is never silently overwritten.
             </p>
             <div className="lr-actions mt-7">
               <a href={editorRepo} className="lr-action-quiet">
