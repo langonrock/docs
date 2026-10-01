@@ -1,0 +1,5 @@
+{
+  "title": "Database",
+  "icon": "Database",
+  "pages": ["transactions", "history", "folders", "migration", "durability", "maintenance"]
+}

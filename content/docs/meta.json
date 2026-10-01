@@ -1,4 +1,4 @@
 {
   "title": "Lang on Rock",
-  "pages": ["index", "getting-started", "guides", "architecture"]
+  "pages": ["index", "getting-started", "database", "guides", "architecture"]
 }
