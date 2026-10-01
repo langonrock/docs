@@ -1,6 +1,6 @@
 ---
 title: Installation
-description: Install the binary, or run from source with Bun.
+description: Install the binary, or build from source with Bun 1.4.2 and a C compiler.
 icon: Download
 ---
 
@@ -10,47 +10,70 @@ icon: Download
 curl -fsSL https://raw.githubusercontent.com/langonrock/langonrock/main/install.sh | sh
 ```
 
-It detects the operating system and architecture, verifies the checksum, and drops the binary in
-`~/.local/bin`. Two environment variables change what it does:
+It detects the operating system and architecture, downloads that platform's binary from the latest
+release, checks it against the release's `SHA256SUMS`, and installs it as
+`~/.local/bin/langonrock`. It prints a note when that directory is not on your `PATH`. Two
+environment variables change what it does:
 
-| Variable              | Effect                                    |
-| --------------------- | ----------------------------------------- |
-| `LANGONROCK_VERSION`  | Install this tag instead of the latest    |
-| `LANGONROCK_BIN`      | Install here instead of `~/.local/bin`    |
+| Variable             | Effect                                 |
+| -------------------- | -------------------------------------- |
+| `LANGONROCK_VERSION` | Install this tag instead of the latest |
+| `LANGONROCK_BIN`     | Install here instead of `~/.local/bin` |
 
-The script covers `darwin` and `linux` on `x64` and `arm64`. On Windows, download the `.exe` from
-the releases page.
+The script covers `darwin` and `linux` on `x64` and `arm64`. When the GitHub CLI is installed and
+logged in it downloads through `gh release download`, and otherwise over plain HTTPS. On Windows,
+take `langonrock-windows-x64.exe` or `langonrock-windows-arm64.exe` from the releases page.
 
-<Callout type="warn" title="While the repository is private">
-  Anonymous download does not work. `install.sh` falls back to an authenticated `gh release
-  download`, so install the GitHub CLI and run `gh auth login` first, or grab the asset from the
-  releases page by hand.
+## What a release contains
+
+Six binaries, `langonrock-darwin-arm64`, `langonrock-darwin-x64`, `langonrock-linux-x64`,
+`langonrock-linux-arm64`, `langonrock-windows-x64.exe` and `langonrock-windows-arm64.exe`, and a
+`SHA256SUMS` covering them.
+
+Each binary is built on a runner of its own operating system and architecture, because the engine's
+native adapter is compiled there; nothing is cross-compiled. Before it is published, the binary
+that was just built stores a real bundle, reads its manifest back and runs a search. The adapter is
+embedded, so a release binary needs no compiler on your machine.
+
+<Callout type="warn" title="Windows is not verified">
+  The test suite runs in CI on Linux, macOS and Windows. It passes on Linux and macOS and does not
+  pass on Windows yet. Crash recovery is tested by killing processes, which says nothing about
+  power loss or about every filesystem's durability behaviour.
 </Callout>
-
-## Prefer the script over clicking a release asset
-
-The published binaries carry an ad-hoc signature only. That is enough for the kernel to run them
-and not enough for Gatekeeper to accept one downloaded through a browser. `install.sh` and
-`brew install` bypass macOS quarantine, so they avoid the path where a working binary looks broken.
-
-Apple Silicon does not warn about an unsigned binary, it refuses to run it. The kernel sends
-SIGKILL before any code executes, which surfaces as a program that produces no output and exits
-137.
 
 ## From source
 
-langonrock needs [Bun](https://bun.com) 1.3 or newer. There is no Node fallback for the store
-itself, because it uses `Bun.file`, `Bun.Glob`, `Bun.YAML` and zstd.
+langonrock needs [Bun](https://bun.com) 1.4.2 or newer, and a C compiler for its native adapter:
+`cc` on macOS and Linux, an MSVC developer environment on Windows. There is no Node fallback for
+the engine itself, which uses `Bun.file`, `Bun.Glob`, `Bun.YAML` and zstd.
 
 ```sh
 git clone https://github.com/langonrock/langonrock
 cd langonrock
 bun install
+bun run build:native
 bun src/cli.ts --help
 ```
 
-`bun install` pulls two runtime dependencies and the development toolchain. The `bin` entry points
-straight at `src/cli.ts`, so there is no build step before running it.
+`bun run build:native` compiles `native/store_platform.c` directly with the system compiler, with no
+node-gyp, no downloaded headers and no Python, into `native/bin/store-platform.node`. The adapter
+supplies OS file locks, flushes and file replacement. The formats, transactions, history and
+recovery are all TypeScript.
+
+`bun install` pulls two runtime packages, `@modelcontextprotocol/sdk` and `zod`, both for the MCP
+server, plus the development toolchain. The `bin` entry points straight at `src/cli.ts`.
+
+### As a dependency
+
+A project that depends on the `langonrock` package builds the adapter from its own checkout:
+
+```sh
+bun node_modules/langonrock/scripts/build-native.ts
+```
+
+Installing the package does not build anything, so an application that only imports
+`langonrock/client`, the fetch-only client for Node, Deno, Electron, Tauri and the browser, installs
+without Bun or a compiler. See [Library](/docs/guides/library).
 
 ## Building a binary
 
@@ -58,22 +81,28 @@ straight at `src/cli.ts`, so there is no build step before running it.
 bun run build --target=bun-darwin-arm64
 ```
 
-`scripts/build.ts` wraps `bun build --compile`. On darwin it also strips the signature Bun writes
-and re-signs ad-hoc, which is required rather than cosmetic: Bun 1.3.12 emits a truncated
-`LC_CODE_SIGNATURE` on macOS arm64, and the resulting file is dead on arrival without it.
+`scripts/build.ts` builds the native adapter, then runs
+`bun build --compile --bytecode --format=esm`, which puts the runtime, the CLI and the adapter in
+one executable and compiles the CLI to bytecode so it skips parsing at startup. Without `--target` it builds for the current machine
+into `dist/langonrock`. A target that does not match the machine running the build is refused:
 
-Six targets are supported: `linux-x64`, `linux-arm64`, `darwin-x64`, `darwin-arm64`, `windows-x64`,
-`windows-arm64`. A binary runs about 60 MB, since the Bun runtime is embedded in it.
+```
+native adapter requires a bun-linux-x64 runner; cross-compilation is unsupported
+```
+
+Pushing a `v*` tag builds the six binaries on matching runners, checksums them and publishes a
+release. The release job refuses to run when the tag disagrees with `package.json`, which is the
+cheapest guard against publishing a binary whose `--version` lies.
 
 ## Where the store lives
 
 Without `--data`, langonrock uses the platform data directory.
 
-| Platform | Directory                                                     |
-| -------- | ------------------------------------------------------------- |
-| Linux    | `$XDG_DATA_HOME/langonrock`, falling back to `~/.local/share/langonrock` |
-| macOS    | `~/Library/Application Support/langonrock`                     |
-| Windows  | `%LOCALAPPDATA%\langonrock`                                    |
+| Platform | Directory                                                                 |
+| -------- | ------------------------------------------------------------------------- |
+| Linux    | `$XDG_DATA_HOME/langonrock`, falling back to `~/.local/share/langonrock`  |
+| macOS    | `~/Library/Application Support/langonrock`                                |
+| Windows  | `%LOCALAPPDATA%\langonrock`                                               |
 
 Precedence is `--data`, then `$LANGONROCK_DATA`, then the platform directory. An embedded
 connection string with no path means the same thing, so `okf://?tenant=acme` reads the default
@@ -86,17 +115,25 @@ langonrock --version
 langonrock --help
 ```
 
+`--version` prints the package version. `--help` prints the usage and exits 0; running with no
+arguments prints the same usage and exits 1.
+
 ## Development
 
 ```sh
+bun install
+bun run build:native
+bun run test
 bun run lint
 bun run format:check
 bun run typecheck
-bun test
+bun run check:dependencies
+bun run check:deps
+bun run check:deadcode
 ```
 
-Those four commands are exactly what CI runs, on Linux, macOS and Windows, with `fail-fast`
-disabled so one platform failing still reports the others. Commits go through commitlint with the
-conventional-commit config, and `lint-staged` runs ESLint and Prettier on staged files. Pushing a `v*` tag cross-compiles six binaries,
-checksums them, and publishes a release. The release job refuses to run when the tag disagrees with
-`package.json`, which is the cheapest guard against publishing a binary whose `--version` lies.
+`bun run test` spreads the suite over one worker per core with `bun test --parallel`, and
+`bun test <file>` runs a single file. CI runs the static checks on Linux, and the native build, the
+smoke tests and the suite on Linux, macOS and Windows. Commits go through commitlint with the
+conventional-commit config, `lint-staged` runs ESLint and Prettier on staged files, and the
+pre-push hook runs the static checks in parallel, then the suite.

@@ -1,15 +1,33 @@
 ---
 title: Vocabulary
-description: Concept, bundle, tenant, manifest, snapshot, section, and the rules that generate ids.
+description: Document, concept, bundle, tenant, manifest, section, revision, snapshot and HEAD, and the rules that generate ids.
 icon: BookOpen
 ---
 
-Six words carry most of the design. They are worth pinning down before anything else, because the
-CLI, the API and the store all use them in the same narrow sense.
+Nine words carry most of the design. They are worth pinning down before anything else, because the
+CLI, the API and the engine all use them in the same narrow sense.
+
+## Document
+
+One Markdown file stored in the database, addressed by its bundle and its path inside the bundle:
+`sales` and `tables/orders.md`. Its version is the sha256 of its content, and that hash is what a
+change names when it replaces or deletes the document, so two writers cannot silently overwrite
+each other. See [Transactions](/docs/database/transactions).
+
+The database keeps the exact text. Frontmatter, keys the compiler ignores, CRLF line endings and a
+byte-order mark all come back out of an export byte for byte. Text must be valid UTF-8; invalid
+byte sequences are refused before anything is published rather than silently replaced.
+
+A path is relative, uses forward slashes, ends in `.md` and stays within 200 characters. Every
+segment starts with a letter or a digit and uses only letters, digits, `.`, `_` and `-`, so nothing
+can escape its bundle and nothing can hide in a dot directory.
+
+`index.md` and `log.md` are navigation documents. They are stored and exported like any other, and
+never become concepts.
 
 ## Concept
 
-One Markdown file with YAML frontmatter. A table, a dataset, a metric, an API, a runbook.
+What the compiler makes of a document: a table, a dataset, a metric, an API, a runbook.
 
 ```yaml
 ---
@@ -21,57 +39,63 @@ status: current
 ---
 ```
 
-Only `type` is required by OKF. langonrock reads five fields and ignores the rest:
+Only `type` is required by OKF. The compiler reads these fields and leaves the rest in the stored
+document:
 
-| Field         | Becomes            | When absent                                            |
-| ------------- | ------------------ | ------------------------------------------------------ |
-| `type`        | the `kind` column  | `-`, and the compiler reports a diagnostic             |
-| `description` | the `summary` cell | the first prose sentence of the body                   |
-| `grain`       | the `grain` column | `-`                                                     |
-| `status`      | the `status` column | `-`                                                    |
-| body links    | the `links` column | `-`                                                     |
+| Field         | Becomes                                     | When absent                                  |
+| ------------- | ------------------------------------------- | -------------------------------------------- |
+| `type`        | the `kind` column                           | `-`, and the compiler reports a diagnostic   |
+| `title`       | a search field, weighted above the others   | none, unless the file has no frontmatter at all |
+| `description` | the `summary` cell                          | the first prose sentence of the body         |
+| `grain`       | the `grain` column                          | `-`                                          |
+| `status`      | the `status` column                         | `-`                                          |
+| `stale_after` | `stale` in the `status` cell once it passes | never stale                                  |
+| body links    | the `links` column                          | `-`                                          |
 
 `kind` is slugged, so `BigQuery Table` becomes `bigquery_table`. Everything else in the frontmatter
-is compiled away, which is where much of the token saving comes from.
+stays in the document and out of the read model, which is where much of the token saving comes
+from.
 
 <Callout title="Only a deviation earns a status cell">
   A concept with no `status`, or one marked `current`, gets `-`. Only `deprecated`, `draft` and
-  anything else unusual survive into the row — and the reader writes `stale` into it at read time
-  once the concept's `stale_after` date passes, so expiry never touches the snapshot bytes. The
-  agent already assumes a concept is current, and the row is paid for on every turn.
+  anything else unusual survive into the row, and the reader writes `stale` into it at read time
+  once the concept's `stale_after` date passes, so expiry never touches the stored bytes. The agent
+  already assumes a concept is current, and the row is paid for on every turn.
 </Callout>
 
 A Markdown file with no frontmatter still compiles: its id comes from the path, its summary from
 its first sentence, its title from its first heading, and its links from the body. What it earns is
-a conformance warning — `no frontmatter, compiled as plain markdown` — which `--strict` turns into
-a failing exit, so OKF conformance is a gate you can enforce rather than the price of admission. A
-docs folder is knowledge before anyone annotates it. Only `index.md` and `log.md` never become
-concepts, since they are OKF navigation rather than knowledge.
+a conformance warning, which `--strict` turns into a failing exit, so OKF conformance is a gate you
+can enforce rather than the price of admission. A docs folder is knowledge before anyone annotates
+it.
 
 ## Bundle
 
-One directory of concepts, and the unit an agent narrows to. Every immediate subdirectory of the
-source folder is a bundle, and nesting below that is free.
+A namespace of documents inside a tenant, and the unit an agent narrows to. On import, every
+immediate subdirectory of the folder is a bundle, dot directories excepted, and nesting below that
+is free.
 
 ```
 sources/acme/
   sales/            <- a bundle
     tables/orders.md
-    metrics/mrr.md
+    metrics/revenue.md
   ops/              <- another bundle
     runbooks/deploy.md
 ```
 
-Create a folder to add a bundle. Delete the folder to remove one. Bundle names are validated
-against `[a-z0-9_-]`, up to 64 characters, because the name becomes a directory.
+A write that names a new bundle creates it, and deleting a bundle removes every document in it in
+one commit. Bundle names are 1 to 64 characters of letters, digits, `_` and `-`, starting with a
+letter or a digit, because the name reaches the filesystem when you export.
 
 ## Tenant
 
-A directory boundary in the store, with its own snapshots and its own search index. Bundles compile
-together into one snapshot per tenant, and the manifest carries a `bundle` column so an agent can
-filter without loading anything extra.
+The unit of isolation. A tenant is a directory in the store with its own `HEAD`, its own
+revisions, its own snapshots and its own search index, and a transaction never spans two of them.
+Bundles compile together into one snapshot per tenant, and the manifest carries a `bundle` column so
+an agent can filter without loading anything extra.
 
-Tenant ids match `[a-z0-9][a-z0-9_-]{0,63}`. The id reaches the filesystem, so it is checked
+Tenant ids follow the same rule as bundle names. The id reaches the filesystem, so it is checked
 against an allowlist and rejected rather than cleaned up and trusted.
 
 Search indexes are per tenant, never shared. A shared index leaks content across tenants through
@@ -91,10 +115,10 @@ Across bundles the same rule applies once more. A bare id stays bare while it is
 whole tenant, and only the ones that clash pay for a `bundle/` prefix. Links are rewritten to
 match.
 
-<Callout type="warn" title="Creating a file can rename a concept nobody touched">
+<Callout type="warn" title="Creating a document can rename a concept nobody touched">
   Adding `staging/orders.md` turns an existing `orders` into `tables/orders`, because the bare name
-  is no longer unique. Re-read the manifest or the source listing after a sync rather than assuming
-  ids are stable.
+  is no longer unique. Re-read the manifest or the source listing after a commit rather than
+  assuming ids are stable.
 </Callout>
 
 ## Links
@@ -117,32 +141,22 @@ These are skipped rather than resolved:
 | ----------------------------------- | -------------------------------- |
 | `#section`                          | Same-document anchor             |
 | `https://…`, `mailto:…`, any scheme | External                         |
-| A link back to the concept itself   | Adds nothing to the graph        |
+| A link back to the concept itself   | Adds nothing to the row          |
 
 Anchors and query strings are stripped before resolution, so `[orders](./orders.md#schema)` links
-to `orders`.
-
-A target that resolves to no concept becomes a diagnostic, and a `dangling` line in `graph`: the
-concept is cited but not yet written, which on a growing corpus is a to-do list rather than an
-error.
+to `orders`. A target that resolves to no concept becomes a diagnostic, stored with the revision and
+printed on import:
 
 ```
-warn: tables/orders.md: unresolved link "./custmers.md"
+warn: tables/payments.md: unresolved link "./custmers.md"
 ```
-
-The heading a link sits under is the type of the edge. `[customers](./customers.md)` under
-`# Joins` is a `joins` edge, under `# Sources` a `sources` edge, and before the first heading a
-`body` edge. The manifest row carries the target only; the type lives in the snapshot and is what
-`graph` reports, so a bundle whose authors never thought about relationship types still gets them
-from the structure they gave their own documents. And "what depends on this concept" is a question
-for `graph`, not for grep: it holds the links in both directions.
 
 Link ids are sorted and deduplicated in the row, which is part of what keeps the manifest
-byte-identical across rebuilds.
+byte-identical across commits that do not change it.
 
 ## Manifest
 
-One TSV row per concept, and the artifact the whole design exists to produce.
+One TSV row per concept, and the artifact the whole read side exists to produce.
 
 ```
 # tenant: acme
@@ -154,40 +168,76 @@ orders	sales	bigquery_table	-	order_id	One row per completed customer order.	cus
 Rows are sorted by bundle, then by id. Link lists are sorted. Nothing carries a timestamp, and
 statistics go to stderr rather than into the file. That is not tidiness, it is a hard requirement:
 the manifest earns its keep by sitting in the cached prompt prefix, and any byte that changes
-between rebuilds invalidates the cache.
+between commits invalidates the cache.
 
 Summaries are flattened to a single line and truncated at 120 characters by default, since a tab or
 a newline in a cell would split the row.
 
 ## Section
 
-A named byte range inside a concept, taken from its own Markdown headings. `get(id, "schema")`
-returns that slice instead of the whole document.
+A named range inside a concept, taken from its own Markdown headings. `get(id, "schema")` returns
+that slice instead of the whole document.
 
 Heading text is lowercased, non-alphanumeric runs become underscores, and a duplicate name gets a
 numeric suffix. Text before the first heading is `body`. Headings inside fenced code blocks are
 excluded, because a `# comment` line in a SQL example is not a heading and real bundles are full of
 them.
 
-| Heading                   | Section name             |
-| ------------------------- | ------------------------ |
-| `# Schema`                | `schema`                 |
+| Heading                    | Section name            |
+| -------------------------- | ----------------------- |
+| `# Schema`                 | `schema`                |
 | `## Common query patterns` | `common_query_patterns` |
-| `### Joins`               | `joins`                  |
-| a second `# Schema`       | `schema_2`               |
+| `### Joins`                | `joins`                 |
+| a second `# Schema`        | `schema_2`              |
+
+## Revision
+
+One commit: the complete source state of a tenant after a transaction, with a pointer to the
+revision before it. Its id is the sha256 of its immutable record, which includes the parent and the
+time of the commit, so two commits always get two revisions even when they store the same
+documents.
+
+```json
+{
+  "revision": "0d07a9f035a9416201367d342e146b379021a43cc9234b699c7c559e4ee7b808",
+  "parent": "e9c762984ea34398083fa766b787af4d307673612eead03416a3a80dec46112f",
+  "snapshot": "0203add32834701b39b60d1b330ad88349a42c93e52bf29d0a660961372098ff",
+  "created": "2026-10-01T02:42:30.592Z",
+  "concepts": 4,
+  "bundles": ["ops", "sales"]
+}
+```
+
+Use revision ids for concurrency, history and restore: a transaction can insist the tenant is still
+at the revision it read, and a restore must. See [History and restore](/docs/database/history).
 
 ## Snapshot
 
-One immutable `.tnt` file holding the manifest, a directory of concept offsets, and zstd-compressed
-bodies. Its name is the sha256 of its own bytes.
+The compiled read model of a revision: one immutable `.tnt` file holding the manifest, a directory
+of concept offsets and section ranges, and zstd-compressed bodies. Its name is the sha256 of its own
+bytes.
 
-Because a snapshot is named by its content, storing an unchanged tree is a no-op, and deleting a
-bundle then restoring it returns to the original snapshot. Rollback is a side effect of the naming
-scheme rather than a feature anyone built.
+Because identical documents compile to identical bytes, two revisions with the same documents share
+one snapshot. Restoring an older revision makes a new revision that points at the snapshot the old
+one had. Use snapshot ids to validate what you cached: the HTTP manifest's `ETag` is the snapshot
+digest, and `snapshot()` returns it.
 
-A one-line `current` file names the active snapshot. It is the only mutable thing in the system.
-
-<Callout type="warn" title="A snapshot is not a backup of your Markdown">
-  It holds the compiled read model. Frontmatter is compiled away and cannot be recovered from it.
-  Keep the source folder in git.
+<Callout type="warn" title="A snapshot alone is not a backup">
+  It holds the compiled read model, with the frontmatter compiled away. The source archive beside it
+  holds the rest of each document, and a backup is the whole tenant directory. See [Collection and
+  backups](/docs/database/maintenance).
 </Callout>
+
+## HEAD
+
+A small record naming the tenant's current revision, its snapshot and its source archive, with
+their checksums. It is the only file a commit replaces in place. Everything else a commit writes is
+new and immutable, and is synchronized to disk before `HEAD` is atomically replaced, so that
+replacement is the commit point.
+
+A corrupt `HEAD` fails closed: the engine does not fall back to an older revision on its own. See
+[Durability and failures](/docs/database/durability).
+
+A tenant created before the engine existed has a `current` file instead of a `HEAD`. It can still be
+read, but the database commands refuse it until it is migrated. See [Migrating a legacy
+tenant](/docs/database/migration).
