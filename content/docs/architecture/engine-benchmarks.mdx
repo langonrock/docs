@@ -1,0 +1,232 @@
+---
+title: Engine benchmarks
+description: The native engine against the one it replaced — what got faster, what got slower, what it costs on disk, and what is still unproven.
+icon: Gauge
+---
+
+When langonrock became a database, the engine under the read model was replaced. The previous one
+compiled authoritative Markdown folders into snapshots; this one commits documents with atomic
+batches, history and restore. This page compares the two on the same machine, the same seeded
+corpus and the same runtime. Neither side is direct folder access, and neither is a vector database.
+
+The read model itself is measured in [benchmarks](/docs/architecture/benchmarks). Here the question
+is narrower: what owning the documents cost, and what it bought.
+
+## Status
+
+**Performance acceptance is open.** Neither run meets the rule below: the formal one is unresolved,
+and the shorter one on the shipping runtime fails four rows.
+
+| Runtime    | Pairs per size | Rows | Pass | Inconclusive | Fail |
+| ---------- | -------------: | ---: | ---: | -----------: | ---: |
+| Bun 1.3.12 |             30 |  114 |  109 |            5 |    0 |
+| Bun 1.4.2  |             10 |  114 |  105 |            5 |    4 |
+
+The thirty-pair run on Bun 1.3.12 is the formal comparison. Every point estimate in it fits its
+budget, but five confidence intervals cross a limit, which leaves the result unresolved rather than
+passed.
+
+The released binaries run on Bun 1.4.2, and there the shorter capture fails four rows, all of them
+opening a tenant: 34 to 68 percent slower than the old engine at 500 and 5,000 concepts. Both
+engines open faster on 1.4.2 than on 1.3.12, but the old one gained more.
+
+Linux and Windows execution has not been verified either. Every number on this page comes from one
+Apple M1 Pro with 32 GiB of memory, running macOS.
+
+## The rule
+
+The baseline is commit `0021f08`, extracted into a temporary directory and run by the same
+TypeScript harness as the new engine. The corpus has 500, 5,000 or 20,000 concepts in bundles of
+500, generated from seed 7. Each pair alternates which engine runs first, and import, open, reads,
+edits and a five-tenant memory case each run in a fresh process. Filesystem caches are not cleared,
+so these are fresh-process measurements, not cold-disk ones. Warm reads get ten warmup calls and
+100 timed ones. Each edit appends a unique marker, commits it, and checks it comes back through
+search and `get`.
+
+| Requirement                                                            | Limit                                                           |
+| ---------------------------------------------------------------------- | --------------------------------------------------------------- |
+| Search, get, section, slice and find                                   | At most 5% regression, at both p50 and p95                      |
+| Import, open, first search, edit-to-search and process initialization  | At most 10% regression, at both p50 and p95                     |
+| Peak and steady memory                                                 | At most 10% regression                                          |
+| Manifest and retrieval                                                 | Exact manifests and checked outputs, unchanged retrieval scores |
+| Disk                                                                   | Reported, with no agreed percentage cap                         |
+| New database operations                                                | Reported as absolute costs, with nothing to compare against     |
+
+Each latency row gets a seeded paired-bootstrap 95% interval on the ratio of the two engines. A row
+passes only when the interval's upper bound fits the limit and fails when its lower bound exceeds
+it. Anything in between is inconclusive and earns twenty more pairs; if it stays inconclusive, the
+gate stays unresolved. Outliers stay in the data, and a gain in one metric never offsets a failure
+in another.
+
+## Selected results, Bun 1.3.12
+
+At 20,000 concepts, thirty pairs. Times are milliseconds and memory is decimal megabytes, the
+median whole-process peak.
+
+| Metric                   |    Before |     After |  Change | Verdict      |
+| ------------------------ | --------: | --------: | ------: | ------------ |
+| Import p50               | 1,152.527 | 1,080.942 |  −6.21% | Pass         |
+| Import p95               | 1,236.685 | 1,152.643 |  −6.80% | Pass         |
+| Open p50                 |    26.229 |    27.022 |  +3.02% | Pass         |
+| Open p95                 |    28.268 |    30.639 |  +8.39% | Inconclusive |
+| First search p50         |   752.792 |   762.414 |  +1.28% | Pass         |
+| First search p95         |   794.652 |   802.705 |  +1.01% | Inconclusive |
+| Warm search p50          |     0.424 |     0.323 | −23.86% | Pass         |
+| Warm search p95          |     2.418 |     2.307 |  −4.63% | Pass         |
+| Get p50                  |     0.080 |     0.034 | −57.49% | Pass         |
+| Get p95                  |     0.122 |     0.062 | −49.10% | Pass         |
+| Edit-to-search p50       | 1,609.450 |   866.966 | −46.13% | Pass         |
+| Edit-to-search p95       | 1,920.842 | 1,031.714 | −46.29% | Pass         |
+| Import peak RSS, MB      |   417.661 |   432.882 |  +3.64% | Pass         |
+| Open peak RSS, MB        |   129.483 |   102.089 | −21.16% | Pass         |
+| Read/search peak RSS, MB |   467.632 |   437.682 |  −6.40% | Pass         |
+| Edit peak RSS, MB        |   964.854 |   891.093 |  −7.64% | Pass         |
+| Five-tenant peak RSS, MB | 1,472.086 | 1,372.176 |  −6.79% | Pass         |
+
+These are all five unresolved rows. Each has a 1.10 maximum accepted ratio.
+
+| Concepts | Metric                     | Point change | 95% ratio interval |
+| -------: | -------------------------- | -----------: | ------------------ |
+|      500 | Import p95                 |       −0.70% | 0.9519–1.3129      |
+|      500 | Import-process startup p95 |      −63.19% | 0.3627–2.2908      |
+|      500 | Open p50                   |       +1.38% | 0.9609–1.1479      |
+|   20,000 | Open p95                   |       +8.39% | 1.0111–1.3460      |
+|   20,000 | First search p95           |       +1.01% | 0.9690–1.1391      |
+
+By size, the thirty-pair run leaves 35 rows passing and 3 inconclusive at 500 concepts, 38 passing
+at 5,000, and 36 passing and 2 inconclusive at 20,000.
+
+## On Bun 1.4.2
+
+A ten-pair capture on the runtime the binaries ship with. Opening a tenant is where it loses.
+
+| Concepts | Metric                |    Before |     After |  Change | Verdict      |
+| -------: | --------------------- | --------: | --------: | ------: | ------------ |
+|      500 | Open p50              |     1.144 |     1.859 | +62.53% | Fail         |
+|      500 | Open p95              |     1.258 |     2.108 | +67.61% | Fail         |
+|    5,000 | Open p50              |     4.679 |     6.282 | +34.26% | Fail         |
+|    5,000 | Open p95              |     4.801 |     6.697 | +39.49% | Fail         |
+|   20,000 | Open p50              |    18.500 |    20.576 | +11.22% | Inconclusive |
+|   20,000 | Open p95              |    22.945 |    21.750 |  −5.21% | Inconclusive |
+|   20,000 | Import p50            | 1,266.816 | 1,322.132 |  +4.37% | Inconclusive |
+|   20,000 | Import peak RSS, MB   |   344.572 |   376.095 |  +9.15% | Inconclusive |
+|   20,000 | Import steady RSS, MB |   344.556 |   376.078 |  +9.15% | Inconclusive |
+
+The rest of the capture moved the other way. At 5,000 concepts:
+
+| Metric             |  Before |   After |  Change | Verdict |
+| ------------------ | ------: | ------: | ------: | ------- |
+| Get p50            |   0.067 |   0.034 | −48.72% | Pass    |
+| Edit-to-search p50 | 317.067 | 174.604 | −44.93% | Pass    |
+| Warm search p50    |   0.252 |   0.158 | −37.35% | Pass    |
+| Import p50         | 357.014 | 338.530 |  −5.18% | Pass    |
+| First search p50   | 150.046 | 153.292 |  +2.16% | Pass    |
+
+Opening is measured from a fresh process to a usable reader. At 500 concepts the regression is 0.7
+of a millisecond, at 5,000 it is 1.6, and a model round trip is worth about a second. That does not
+change the verdict: the limit is the limit, and the rows stay failed until a run says otherwise.
+
+## Manifest and retrieval
+
+Both engines produce exactly equal manifests, whole and per bundle, and equal outputs for every
+checked `get`, section, slice, `find` and search, and every edit becomes visible on both. On the
+five fixed topic queries of this harness both score 0.8 hit rate and 0.8 mean reciprocal rank at
+every size. That is unchanged, not a claim of good retrieval; the [retrieval
+benchmarks](/docs/architecture/benchmarks) measure that.
+
+| Concepts | Manifest characters, both sides | Estimated tokens, both sides | Growth |
+| -------: | ------------------------------: | ---------------------------: | -----: |
+|      500 |                          82,198 |                       20,550 |     0% |
+|    5,000 |                         823,408 |                      205,852 |     0% |
+|   20,000 |                       3,343,691 |                      835,923 |     0% |
+
+The token estimates are characters divided by four, rounded up. The equality is the stronger
+check: the bytes an agent receives did not change.
+
+## What the new operations cost
+
+These have no equivalent in the old engine, so there is nothing to compare them against. Median
+milliseconds, ten repetitions per size, on Bun 1.3.12:
+
+| Operation                                       |   500 | 5,000 |  20,000 |
+| ----------------------------------------------- | ----: | ----: | ------: |
+| Create 25 documents in one batch                |  35.6 |  93.8 |   277.9 |
+| Replace 25 documents in one batch               |  13.7 |  39.9 |   132.4 |
+| First history page, five revisions              |  1.14 |  1.14 |    1.06 |
+| Next history page, five revisions               |  1.08 |  1.36 |    0.93 |
+| Restore                                         |  16.6 |  71.4 |   258.2 |
+| Reopen and `get` after an interrupted write     |   3.5 |   9.8 |    27.0 |
+| Verify retained data and collect, keep ten      |  73.6 | 531.2 | 1,995.6 |
+| Winning writer, publication after preparation   |  12.2 |  14.9 |    26.8 |
+| Conflicting writer, rejection after preparation |  18.5 |  18.7 |    30.0 |
+
+A commit's cost grows with the tenant, because every commit writes a complete snapshot and source
+archive: 25 new documents take 36 ms at 500 concepts and 278 at 20,000. History does not grow,
+since a page reads revision records and nothing else.
+
+**Contention.** Two writers prepare changes to the same document against the same revision while a
+third process holds a reader with its search index built. Every run checks that exactly one writer
+commits, the other is refused, and the reader keeps seeing the content it pinned. At 20,000
+concepts the three processes held 1.10 GB together at the barrier, and each writer peaked at about
+0.38 GB. Two writers and a reader are a correctness test, not a sustained load test.
+
+**Recovery.** A writer is killed after staging its new `HEAD` and before replacing the committed
+one. A fresh process reopens the tenant, reads a concept, confirms the last acknowledged revision is
+the one it sees, and fully verifies all ten retained revisions. Killing a process is not losing
+power, and nothing here claims behavior after a power failure.
+
+## What it costs on disk
+
+The same ten single-document edits on each side, then ten versions retained, counting snapshots,
+source archives, revision records, import state, staging and the original folder:
+
+| Concepts | Before, total allocated | After, total allocated | Change |
+| -------: | ----------------------: | ---------------------: | -----: |
+|      500 |                 7.66 MB |               12.96 MB | +69.3% |
+|    5,000 |                76.40 MB |              129.05 MB | +68.9% |
+|   20,000 |               306.72 MB |              518.95 MB | +69.2% |
+
+That is the largest regression on this page, and it is a cost of what the engine keeps. Native
+history preserves complete sources, frontmatter and navigation files included, where the old
+engine kept compiled snapshots, and the new engine compresses at level 1. Counting the store alone,
+without the original folder, allocated bytes at 20,000 concepts rise from 222.0 MB to 434.2 MB,
+about 96 percent. [Collection](/docs/database/maintenance) is what bounds it.
+
+## The MCP schema
+
+| Configuration          | Tools | Schema JSON bytes | Estimated tokens |
+| ---------------------- | ----: | ----------------: | ---------------: |
+| Default                |     6 |             6,869 |            1,718 |
+| Database tools enabled |     9 |             8,911 |            2,228 |
+
+Enabling the database tools adds 510 estimated tokens to every session. These figures leave out
+the tenant's advice sentence, 23 tokens, which a running server adds to the `manifest` tool, so the
+six default tools cost 1,741 as served. Neither figure is part of the zero-growth manifest result.
+
+## What these numbers do not show
+
+- The corpus is deterministic and synthetic. Other document sizes, bundle layouts, hardware or
+  concurrent workloads may behave differently.
+- Every capture ran on one machine, macOS on Apple silicon. Linux and Windows have not run these
+  workloads.
+- The timings measure engine calls and exclude HTTP and MCP transport.
+- Crash behavior was established by killing processes, not by cutting power.
+- Apart from the one unresolved row above, the process-startup rows are left out, because nothing in
+  this comparison explains them.
+
+## Reproduce them
+
+Clone with full history, because the baseline is a commit the runner extracts. Use new output paths
+every time; the runners refuse to overwrite existing evidence.
+
+```sh
+bun run bench:dbms --output bench/results/dbms/comparison.json
+bun bench/dbms/compare.ts bench/results/dbms/comparison.json
+
+bun bench/operations/run.ts --repetitions 10 --output bench/results/dbms/operations.json
+bun bench/operations/report.ts bench/results/dbms/operations.json > bench/results/dbms/operations.md
+```
+
+The raw captures record the source and native build fingerprints, the machine, the filesystem, the
+runtime and every sample, and a capture whose fingerprints changed during the run is refused rather
+than reported.
