@@ -10,51 +10,86 @@ langonrock --version
 ```
 
 Running with no arguments prints the usage and exits 1. `--help` prints the same thing and exits 0.
+Results go to stdout and everything else, statistics, diagnostics and status lines, goes to
+stderr, so a result can always be piped. The database commands print one line of JSON.
 
 ## Commands
 
-| Command          | What it does                                          |
-| ---------------- | ----------------------------------------------------- |
-| `compile <dir>`  | Compile one bundle to a manifest on stdout            |
-| `put <dir>`      | Store one directory as one bundle                     |
-| `sync <dir>`     | Store every subdirectory as its own bundle            |
-| `watch <dir>`    | Keep a tenant in sync with a folder                   |
-| `manifest`       | Print the stored manifest                             |
-| `get <id...>`    | Fetch concepts by id                                  |
-| `graph`          | Report the link graph's shape                         |
-| `serve`          | Run the daemon                                        |
-| `token`          | Mint a token and record its grant                     |
-| `query <dsn> …`  | Any read or write verb over any connection string     |
-| `mcp <dsn>`      | Serve MCP over stdio                                  |
-| `gc`             | Collect old and partial snapshots                     |
+| Command          | What it does                                                        |
+| ---------------- | ------------------------------------------------------------------- |
+| `compile <dir>`  | Compile one bundle to a manifest on stdout, storing nothing          |
+| `import <dir>`   | Import a folder of bundles into a tenant, with conflict detection    |
+| `sync <dir>`     | The same command as `import`                                         |
+| `put <dir>`      | Import one directory as one bundle                                   |
+| `watch <dir>`    | Keep a tenant following a folder                                     |
+| `export <dir>`   | Write the current revision's exact Markdown to a new directory       |
+| `migrate <dir>`  | Move a legacy tenant into the engine, from its original sources      |
+| `manifest`       | Print the stored manifest                                            |
+| `get <id...>`    | Fetch concepts by id                                                 |
+| `transact`       | Commit an atomic batch of document changes                           |
+| `history`        | List retained revisions, newest first                                |
+| `restore <rev>`  | Publish an older revision as a new commit                            |
+| `verify [rev]`   | Check stored data, or one candidate revision                         |
+| `repair <rev>`   | Make a verified revision the tenant's only retained root             |
+| `gc`             | Remove what retention no longer needs                                |
+| `serve`          | Run the daemon                                                       |
+| `token`          | Mint a token and record its grant                                    |
+| `query <dsn> …`  | Any read, source or database verb over any connection string         |
+| `mcp <dsn>`      | Serve MCP over stdio                                                 |
+
+`import` is accepted although `--help` lists only its older name, `sync`.
 
 ### compile
 
 ```sh
-langonrock compile sources/acme/sales --bundle sales --summary-width 80
+langonrock compile sources/acme/sales --bundle sales
 ```
 
-Writes the manifest to stdout and nothing to the store, so it is the fastest way to see what the
-compiler makes of a folder. Diagnostics and statistics go to stderr. Without `--bundle`, the
-directory name is used.
+```
+# bundle: sales
+id	kind	status	grain	summary	links
+customers	bigquery_table	deprecated	customer_id	Registered customers, including churned.	-
+orders	bigquery_table	-	order_id	One row per completed customer order.	customers
+```
 
-### put and sync
+Writes the manifest of one bundle to stdout and nothing to the store, so it is the fastest way to
+see what the compiler makes of a folder. Diagnostics and the statistics line go to stderr. Without
+`--bundle`, the directory name is used.
 
-`put` treats the directory as a single bundle. `sync` treats every immediate subdirectory as its
-own bundle and compiles them together into one snapshot.
+### import, sync and put
 
 ```sh
+langonrock import sources/acme --data ./data --tenant acme
 langonrock put sources/acme/sales --data ./data --tenant acme --bundle sales
-langonrock sync sources/acme --data ./data --tenant acme
 ```
 
-Both report the resulting snapshot on stderr, and both say whether it was new or reused:
+`import`, and `sync` under its older name, treats every immediate subdirectory as a bundle. `put`
+imports one directory as one bundle, named by `--bundle` or after the directory. Each reports the
+resulting snapshot on stderr:
 
 ```
-snapshot eaf251169a59 (new), 2 bundles [ops sales], 3 concepts, 850 bytes on disk
+snapshot cd9078b9af0b (new), 2 bundles [ops sales], 3 concepts, 1236 bytes on disk
 ```
 
-`(reused)` means the tree hashed to a snapshot that already existed, so nothing was written.
+`(reused)` means the documents compiled to the snapshot that is already current; importing an
+unchanged folder again commits nothing. The byte count is the size of the snapshot file.
+
+An import remembers what it last read from each folder. A file that has not changed there since
+never overwrites a database edit, and a document changed on both sides fails the whole import,
+with nothing published:
+
+```
+folder and database both changed sales/tables/customers.md; reconcile the source hashes before importing
+```
+
+`--strict` exits 1 when any diagnostic is reported, after the import has been committed. It changes
+the exit code, not what is stored. A legacy tenant is refused until it is migrated:
+
+```
+legacy tenant: migrate with original sources before using database transactions
+```
+
+See [Import, watch and export](/docs/database/folders).
 
 ### watch
 
@@ -62,8 +97,49 @@ snapshot eaf251169a59 (new), 2 bundles [ops sales], 3 concepts, 850 bytes on dis
 langonrock watch sources/acme --data ./data --tenant acme --debounce 500
 ```
 
-Runs until interrupted. Writes inside dot directories are ignored, because `.git` and `.obsidian`
-change constantly and rebuilding on them would never stop.
+Runs until interrupted. It prints `watching sources/acme for tenant acme`, then a snapshot line for
+each import it runs, and reports a failed import, a conflict included, as an `error:` line without
+stopping. Writes inside dot directories are ignored, because `.git` and `.obsidian` change
+constantly and importing on them would never stop. A full rescan every 30 seconds backs up the
+filesystem events. A legacy tenant is still compiled from its folder, as before.
+
+### export
+
+```sh
+langonrock export ./exported-acme --data ./data --tenant acme
+```
+
+```
+{"revision":"496744db3e3c76ce67cb8ba028b15fc6558ed3f3a5f3cd1b7827c628df0aab57","destination":"/home/me/exported-acme","files":3,"bytes":1115}
+```
+
+Writes the current revision's documents to a new directory, exactly as stored, and refuses one that
+already exists:
+
+```
+export destination already exists; choose a new directory to preserve existing files
+```
+
+To export an older state, restore it first.
+
+### migrate
+
+```sh
+langonrock migrate sources/acme --data ./data --tenant acme --dry-run
+langonrock migrate sources/acme --data ./data --tenant acme
+```
+
+```
+{"alreadyMigrated":false,"dryRun":true,"snapshot":"cd9078b9af0b1d912a9e6e0c8c12d409be3aac3394085d56dc618458b5e23ad8","concepts":3}
+{"alreadyMigrated":false,"dryRun":false,"snapshot":"cd9078b9af0b1d912a9e6e0c8c12d409be3aac3394085d56dc618458b5e23ad8","concepts":3,"revision":"bb87d48285cf586b1a4c9eee72e92e84a7427af22a001ec1406a1a810cfeb1df"}
+```
+
+Moves a tenant created before the engine existed into it, using the original Markdown folder. The
+dry run checks that the migrated tenant would compile to exactly the read model the legacy one
+serves, without publishing anything. Running it again after a migration reports
+`"alreadyMigrated":true`. Pass `--bundle` for a single-bundle source directory, and the
+`--summary-width` the legacy tenant was compiled with. See [Migrating a legacy
+tenant](/docs/database/migration).
 
 ### manifest and get
 
@@ -73,61 +149,124 @@ langonrock get orders customers --section schema --data ./data --tenant acme
 ```
 
 `get` prints each concept prefixed by `@@ <id>`. It warns on stderr for any id it could not find,
-and exits 1 when at least one is missing.
+`warn: no such concept or section: <id>`, and exits 1 when at least one is missing.
 
-A partial read — `--offset`, `--limit`, or a `--find` window — frames itself instead:
+A partial read, from `--offset`, `--limit` or a `--find` window, frames itself instead:
 
 ```sh
-langonrock get moby --find "Call me Ishmael" --limit 200 --data ./data --tenant library
+langonrock get orders --find "customer_id" --limit 120 --data ./data --tenant acme
 ```
 
 ```
-@@ moby [0..200 of 1216418] 1 match at 22
+@@ orders [158..278 of 476] 2 matches at 212 462
 ```
 
-`--find` is a literal, case-insensitive phrase; the output is a window around the first occurrence
+`--find` is a literal, case-insensitive phrase. The output is a window around the first occurrence
 and the offset of every one, which is how you jump to the others with `--offset`.
 
-Both read the store directly. Use [`query`](#query) instead to go through a daemon or a server.
+Both read the store directly. Use [`query`](#query) to go through a daemon or a server.
+
+### transact, history and restore
+
+```sh
+langonrock transact --data ./data --tenant acme --from batch.json
+langonrock history --data ./data --tenant acme --limit 20
+langonrock restore "$REVISION" --expected-revision "$CURRENT" --data ./data --tenant acme
+```
+
+`transact` reads a JSON batch from `--from`, or from stdin without it, and prints the commit:
+
+```
+{"revision":"984e1dcb03ea2403acd84528949187909ef0e327504f03d92e00b199ba9dc9c9","snapshot":"0203add32834701b39b60d1b330ad88349a42c93e52bf29d0a660961372098ff","concepts":4,"bundles":["ops","sales"],"diagnostics":[]}
+```
+
+A batch whose preconditions fail publishes nothing and exits 1 with the reason, such as
+`concept already exists: re-read the concept and retry with its new hash`.
+
+`history` prints a page of revisions, newest first: 20 by default, `--limit` up to 100. When older
+revisions remain, the page carries a `next` cursor; pass it back with `--before` to continue.
+
+`restore` needs the revision to restore and `--expected-revision`, the revision you believe is
+current. If anything was committed since, it is refused with
+`database changed: re-read the revision and document hashes`. See
+[Transactions](/docs/database/transactions) and [History and restore](/docs/database/history).
+
+### verify and repair
+
+```sh
+langonrock verify --data ./data --tenant acme
+```
+
+```
+{"ok":true,"headHash":"6e8800ac883efc977ac044808be4286b9e45f060cb24b54c1f1d776e3ce69f4b","verifiedRevisions":["496744db3e3c76ce67cb8ba028b15fc6558ed3f3a5f3cd1b7827c628df0aab57","984e1dcb03ea2403acd84528949187909ef0e327504f03d92e00b199ba9dc9c9","7a4b86c1a08808561bab370254e5ce68157797da2e56326a3406a4b6b586075c"],"issues":[]}
+```
+
+`verify` reads the stored data without the ordinary caches and exits 1 when `ok` is false. Given a
+revision, it checks that one candidate instead.
+
+```sh
+langonrock repair "$REVISION" --expected-head "$HEAD_HASH" --data ./data --tenant acme
+```
+
+`repair` makes a verified revision the tenant's only retained root. `--expected-head` is the
+`headHash` that `verify` reported, or `missing` when there is no `HEAD`; the old `HEAD` is kept
+under `recovery/`. It never runs on its own. See [Durability and failures](/docs/database/durability).
+
+### gc
+
+```sh
+langonrock gc --data ./data --tenant acme --keep 2 --dry-run
+```
+
+```
+acme: would remove 1 snapshot and 0 partials, kept 2, freed 421 bytes
+```
+
+Keeps the newest ten committed revisions by default, and removes every file nothing retained
+refers to: snapshots, source archives, revision records and import maps, all counted as
+`snapshots` in that line, plus abandoned staging files, the `partials`. Without `--tenant` it
+collects every tenant. On a legacy tenant it counts snapshots, honours `--grace`, and exits 1 when
+`current` points at a snapshot that is missing or truncated. See [Collection and
+backups](/docs/database/maintenance).
 
 ### serve
 
 ```sh
-langonrock serve --data ~/okf/data --socket /tmp/okf.sock
-langonrock serve --data ~/okf/data --host 127.0.0.1 --port 7777
+langonrock serve --data ./data --socket /tmp/okf.sock
+langonrock serve --data ./data --host 127.0.0.1 --port 7777
 ```
 
-Without `--socket`, `--host` or `--port`, the daemon listens on `<data>/langonrock.sock`. See
+```
+langonrock serving ./data on /tmp/okf.sock (0 tokens, 0 writable tenants)
+```
+
+Without `--socket`, `--host` or `--port`, the daemon listens on `<data>/langonrock.sock`. The last
+count in the banner is the number of folders it watches from `sources.json`, not the number of
+tenants it will write. The daemon commits writes to any database tenant a request is allowed to
+write: by its token's grant, or, with no tokens at all, by anyone who can reach the socket. See
 [Running a server](/docs/guides/running-a-server).
 
 ### token
 
 ```sh
-langonrock token --data ~/okf/data --tenant acme            # read-only
-langonrock token --data ~/okf/data --tenant acme --write    # may edit source
+langonrock token --data ./data --tenant acme            # read-only
+langonrock token --data ./data --tenant acme --write    # may write
 ```
 
-The token goes to stdout so you can capture it into a variable. Everything else goes to stderr. See
+The token goes to stdout so you can capture it into a variable. Everything else goes to stderr. A
+running server reads `tokens.json` only at startup, so restart it before a new token works. See
 [Tokens and TLS](/docs/guides/security).
-
-### gc
-
-```sh
-langonrock gc --data ~/okf/data --dry-run
-langonrock gc --data ~/okf/data --tenant acme --keep 5
-```
-
-Without `--tenant` it collects every tenant. It exits 1 when a tenant's `current` points at a
-snapshot that is missing or truncated. See [Backup and collection](/docs/guides/backups).
 
 ### mcp
 
 ```sh
 langonrock mcp "okf:///abs/path/to/data?tenant=acme"
+langonrock mcp "okf:///abs/path/to/data?tenant=acme" --database-tools
 ```
 
-Speaks MCP over stdio against any connection string. The transport owns stdout, so diagnostics go
-to stderr only.
+Speaks MCP over stdio against any connection string, with six tools by default and
+`transact`, `history` and `restore` added by `--database-tools`. The transport owns stdout, so
+diagnostics go to stderr only. See [MCP server](/docs/guides/mcp).
 
 ## query
 
@@ -140,56 +279,32 @@ remote server are driven the same way.
 
 ### Read verbs
 
-| Verb                    | Output                                              |
-| ----------------------- | --------------------------------------------------- |
-| `manifest`              | The manifest, or one bundle with `--bundle`          |
-| `snapshot`              | The current digest                                   |
-| `search <words...>`     | Ranked manifest rows plus a `pos` column, `--k` and `--bundle` apply |
-| `get <id...>`           | Concepts; `--section`, `--offset`, `--limit`, `--find` apply |
-| `graph`                 | The link graph's shape; `--format text`, `json` or `dot` |
+| Verb                | Output                                                                  |
+| ------------------- | ----------------------------------------------------------------------- |
+| `manifest`          | The manifest, or one bundle with `--bundle`                             |
+| `snapshot`          | The current snapshot digest                                             |
+| `search <words...>` | Ranked manifest rows plus a `pos` column; `--k` and `--bundle` apply    |
+| `get <id...>`       | Concepts; `--section`, `--offset`, `--limit` and `--find` apply         |
 
-Each direct search hit ends in `pos`, the offset of the passage densest in the query's words —
-follow it with `get <id> --offset <pos> --limit 2000` to read the passage instead of the document.
-A query that names a concept by id or exact title reports it on an `# anchors:` line and ranks its
-link neighbourhood first.
-Linked rows and hits whose match is only in the manifest row show `-`.
+Each direct search hit ends in `pos`, the offset of the passage densest in the query's words.
+Follow it with `get <id> --offset <pos> --limit 2000` to read the passage instead of the document.
+Linked rows, and hits whose words appear only in the manifest row, show `-`.
 
 ```sh
 langonrock query "okf+unix:///tmp/okf.sock?tenant=acme" search order grain --k 5
 langonrock query "okf+http://127.0.0.1:7777?token=$TOKEN" manifest --bundle sales
 ```
 
-### The graph
+### Source verbs
 
-`graph` works on the store directly with `--data` and `--tenant`, or over any connection string as
-`query <dsn> graph`. Over the quickstart fixture:
-
-```
-concepts 6, edges 4, density 0.1333
-types: body 4
-components 4 (largest 3)
-clusters 4 (largest 3, modularity 0)
-hubs (in/out): tables/orders 2/2 customers 1/1 metrics/orders 1/1
-orphans 3: messy orders_db weekly_active_users
-dangling 1: tables/orders -> ./payments.md
-```
-
-Orphans are concepts nothing links to, reachable by search alone. Dangling links point at
-concepts that do not exist yet. Types are the headings the links sit under. `--format json` is the
-same graph as the library's `graph()`, nodes with links in both directions and a cluster label
-each; `--format dot | dot -Tsvg` draws it, one subgraph per bundle and one colour per cluster, so
-you can see whether the clusters the links imply agree with the folders you chose.
-
-### Write verbs
-
-| Verb                             | What it does                                |
-| -------------------------------- | ------------------------------------------- |
-| `source`                         | List source files with hashes and sizes     |
-| `read <bundle> <path>`           | Print one file, hash on stderr              |
-| `write <bundle> <path>`          | Write one, from stdin or `--from`           |
-| `delete <bundle> <path>`         | Remove one file                             |
-| `delete-bundle <bundle>`         | Remove a whole bundle                       |
-| `sync`                           | Recompile now and report the new snapshot   |
+| Verb                     | What it does                                                    |
+| ------------------------ | --------------------------------------------------------------- |
+| `source`                 | List documents as hash, bytes and `bundle/path`                 |
+| `read <bundle> <path>`   | Print one document, its hash on stderr                          |
+| `write <bundle> <path>`  | Commit one document, from stdin or `--from`                     |
+| `delete <bundle> <path>` | Commit the removal of one document                              |
+| `delete-bundle <bundle>` | Commit the removal of a whole bundle                            |
+| `sync`                   | Report the current commit; recompile a legacy tenant's sources  |
 
 ```sh
 langonrock query "$DSN" source
@@ -200,82 +315,137 @@ langonrock query "$DSN" delete sales tables/old.md --force
 langonrock query "$DSN" sync
 ```
 
+`source` prints one line per document, the hash first:
+
+```
+b8475eb207b4239c0565fe75e0e95cd3d79732569a3c4ee4804e00452cd57f97	212	ops/runbooks/deploy.md
+dce62d2e17f8bbf981c4e8bb419ab98d6db77fe322cf9b9ecc6dae2d90c41632	317	sales/tables/customers.md
+3b3807a007b08a92991718ba790e3ff312793710a8d9ea141c7f19633deb5750	586	sales/tables/orders.md
+```
+
+Each `write`, `delete` and `delete-bundle` is its own commit, visible to the next read. `write`
+confirms on stderr with the new hash:
+
+```
+wrote sales/metrics/new.md b8475eb207b4239c0565fe75e0e95cd3d79732569a3c4ee4804e00452cd57f97
+```
+
+`sync` on a database tenant only reports the current state, without creating a revision:
+
+```
+snapshot f55e4feb8df8, 2 bundles, 4 concepts
+```
+
+On a legacy tenant whose folder is registered in `sources.json`, the source verbs edit that folder
+instead, and `sync` recompiles it.
+
+A change that names no version is refused before anything is read, and one that names a stale
+version is refused by the database:
+
+```
+a write needs --replaces <hash> to update, --create for a new concept, or --force to overwrite whatever is there
+concept changed since it was read: re-read the concept and retry with its new hash
+```
+
 <Callout type="warn" title="A write must name the version it replaces">
   `--create`, `--replaces <hash>` and `--force` are the command-line spelling of the same
-  precondition, and there is no default. A `write` with none of them is refused, and `--force` is
-  the honest name for taking whatever is there right now. See [Editing over the
-  network](/docs/guides/editing).
+  precondition, and there is no default. A `write` or `delete` with none of them is refused, and so
+  is a stale hash, each with a message that says what to do next. `--force` reads the current hash
+  and writes against it, which is the honest name for taking whatever is there right now. See
+  [Editing over the network](/docs/guides/editing).
 </Callout>
+
+### Database verbs
+
+| Verb            | What it does                                              |
+| --------------- | --------------------------------------------------------- |
+| `transact`      | Commit a JSON batch from stdin or `--from`                |
+| `history`       | A page of revisions; `--limit` and `--before` apply       |
+| `restore <rev>` | Restore with `--expected-revision`                        |
+
+They print the same JSON as the local commands, through any connection, so a remote tenant is
+committed to, paged and restored exactly like a local one.
 
 ## Flags
 
 ### Store and tenant
 
-| Flag              | Default                                              |
-| ----------------- | ---------------------------------------------------- |
-| `--data <dir>`    | `$LANGONROCK_DATA`, else the platform data directory |
-| `--tenant <id>`   | required by most commands, `[a-z0-9_-]` up to 64 chars |
+| Flag            | Default                                                 |
+| --------------- | ------------------------------------------------------- |
+| `--data <dir>`  | `$LANGONROCK_DATA`, else the platform data directory    |
+| `--tenant <id>` | required by most commands, up to 64 characters          |
 
 ### Reading
 
-| Flag                  | Default | Applies to           |
-| --------------------- | ------- | -------------------- |
-| `--section <name>`    | none    | `get`                |
-| `--offset <n>`        | 0       | `get`                |
-| `--limit <n>`         | none    | `get`                |
-| `--find <text>`       | none    | `get`                |
-| `--k <n>`             | 8       | `search`             |
-| `--bundle <name>`     | the directory name for `compile`, no filter elsewhere | `compile`, `manifest`, `search` |
-| `--out <file>`        | stdout  | anything that prints |
+| Flag               | Default                                           | Applies to                     |
+| ------------------ | ------------------------------------------------- | ------------------------------ |
+| `--section <name>` | none                                              | `get`                          |
+| `--offset <n>`     | 0                                                 | `get`                          |
+| `--limit <n>`      | none for `get`, 20 for `history`                  | `get`, `history`               |
+| `--find <text>`    | none                                              | `get`                          |
+| `--k <n>`          | 8                                                 | `search`                       |
+| `--bundle <name>`  | the directory name for `compile` and `put`, no filter elsewhere | `compile`, `put`, `migrate`, and `query`'s `manifest` and `search` |
+| `--out <file>`     | stdout                                            | anything that prints a result  |
 
 ### Compiling
 
-| Flag                    | Default | Effect                                        |
-| ----------------------- | ------- | --------------------------------------------- |
-| `--summary-width <n>`   | 120     | Maximum characters per summary cell           |
-| `--strict`              | off     | Exit non-zero when any diagnostic is reported |
+| Flag                  | Default | Effect                                        |
+| --------------------- | ------- | --------------------------------------------- |
+| `--summary-width <n>` | 120     | Maximum characters per summary cell           |
+| `--strict`            | off     | Exit non-zero when any diagnostic is reported |
+
+### Database
+
+| Flag                             | Effect                                                     |
+| -------------------------------- | ---------------------------------------------------------- |
+| `--from <file>`                  | The batch for `transact`, or the content for `write`       |
+| `--before <cursor>`              | Continue a `history` page from its `next` cursor           |
+| `--expected-revision <revision>` | `restore` only if this revision is still current           |
+| `--expected-head <hash\|missing>` | `repair` only if `HEAD` still has the hash `verify` reported |
+| `--dry-run`                      | Validate a `migrate`, or preview a `gc`, without publishing |
 
 ### Serving
 
-| Flag                 | Default                          |
-| -------------------- | -------------------------------- |
-| `--socket <path>`    | `<data>/langonrock.sock`         |
-| `--host <name>`      | `127.0.0.1` when TCP             |
-| `--port <n>`         | 7777                             |
-| `--tls-cert <file>`  | none, required off loopback      |
-| `--tls-key <file>`   | none, required with `--tls-cert` |
-| `--watch <dir>`      | none, also watch this folder for `--tenant` |
-| `--debounce <ms>`    | 200                              |
-| `--rescan <ms>`      | 30000                            |
+| Flag                | Default                                        |
+| ------------------- | ---------------------------------------------- |
+| `--socket <path>`   | `<data>/langonrock.sock`                       |
+| `--host <name>`     | `127.0.0.1` when TCP                           |
+| `--port <n>`        | 7777                                           |
+| `--tls-cert <file>` | none, required off loopback                    |
+| `--tls-key <file>`  | none, required with `--tls-cert`               |
+| `--watch <dir>`     | none, also import this folder into `--tenant`  |
+| `--debounce <ms>`   | 200                                            |
+| `--rescan <ms>`     | 30000                                          |
 
 `--tls-cert` and `--tls-key` must be given together, and neither works with a unix socket.
 
 ### Writing source
 
-| Flag                 | Effect                                        |
-| -------------------- | --------------------------------------------- |
-| `--from <file>`      | Read the content from a file instead of stdin |
-| `--replaces <hash>`  | The hash this change is based on              |
-| `--create`           | The concept must not exist yet                |
-| `--force`            | Use whatever hash is there right now          |
+| Flag                | Effect                                        |
+| ------------------- | --------------------------------------------- |
+| `--from <file>`     | Read the content from a file instead of stdin |
+| `--replaces <hash>` | The hash this change is based on              |
+| `--create`          | The document must not exist yet               |
+| `--force`           | Use whatever hash is there right now          |
 
-### Tokens
+### Tokens and MCP
 
-| Flag        | Effect                                |
-| ----------- | ------------------------------------- |
-| `--write`   | The token may change source Markdown  |
+| Flag               | Effect                                              |
+| ------------------ | --------------------------------------------------- |
+| `--write`          | The token may write                                 |
+| `--database-tools` | `mcp` also exposes `transact`, `history`, `restore` |
 
 ### Collection
 
-| Flag           | Default   | Effect                                 |
-| -------------- | --------- | -------------------------------------- |
-| `--keep <n>`   | 10        | Snapshots to retain per tenant         |
-| `--grace <ms>` | 3600000   | Never collect anything newer than this |
-| `--dry-run`    | off       | Report what would be removed           |
+| Flag           | Default | Effect                                                  |
+| -------------- | ------- | ------------------------------------------------------- |
+| `--keep <n>`   | 10      | Revisions to retain per tenant; snapshots on a legacy one |
+| `--grace <ms>` | 3600000 | Legacy tenants only: never collect anything newer        |
+| `--dry-run`    | off     | Report what would be removed                            |
 
 ## Exit codes
 
-| Code | Meaning                                                                                              |
-| ---- | ---------------------------------------------------------------------------------------------------- |
-| 0    | Success                                                                                              |
-| 1    | An error, a missing concept in `get`, a corrupt `current` in `gc`, or any diagnostic under `--strict` |
+| Code | Meaning                                                                                                                                                          |
+| ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0    | Success                                                                                                                                                          |
+| 1    | An error, with its message on stderr; a missing concept in `get`; `ok: false` from `verify`; a corrupt legacy `current` in `gc`; any diagnostic under `--strict` |
