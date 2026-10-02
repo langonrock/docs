@@ -97,7 +97,9 @@ export function Features({ className }: { className?: string }) {
                       <h3 className="text-xl font-medium tracking-tight text-balance">
                         {feature.title}
                       </h3>
-                      <p className="text-sm text-[color:var(--lr-dim)]">{feature.description}</p>
+                      <p className="text-sm text-pretty text-[color:var(--lr-dim)]">
+                        {feature.description}
+                      </p>
                     </div>
                   </div>
                 );

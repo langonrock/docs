@@ -117,6 +117,17 @@
   }
 }
 
+/*
+ * Body copy that carries on a section head's argument starts in the head's prose
+ * column, so the page keeps its one spec-sheet edge rather than restarting at the
+ * container's.
+ */
+@media (min-width: 64rem) {
+  .lr-column {
+    margin-left: calc(22rem + 5rem);
+  }
+}
+
 /* Type -------------------------------------------------------------------- */
 
 .lr-display {

@@ -15,7 +15,7 @@ export function Cost() {
           <p className="lr-prose">{description}</p>
         </div>
 
-        <div className="mt-14">
+        <div className="lr-column mt-14">
           <p className="lr-prose">
             On the 500-concept catalogue langonrock answers in 17 round trips, against 30 for the
             OKF navigator and 20 for ChromaDB, because the agent reads the manifest once and makes
