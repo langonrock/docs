@@ -12,12 +12,17 @@ interface ChartProps {
   max: number;
   axis: string;
   unit: string;
+  /** Marks the title for the footnote under the chart that says which way is better. */
+  footnote?: boolean;
 }
 
-function Caption({ title, axis }: { title: string; axis: string }) {
+function Caption({ title, axis, footnote }: { title: string; axis: string; footnote?: boolean }) {
   return (
     <figcaption className="lr-figcaption">
-      <b>{title}</b>
+      <b>
+        {title}
+        {footnote ? <span aria-hidden="true">*</span> : null}
+      </b>
       <span className="lr-mono">0 – {axis}</span>
     </figcaption>
   );
@@ -28,10 +33,10 @@ function Caption({ title, axis }: { title: string; axis: string }) {
  * same DOM. A screen reader reads labels and values; nobody needs a separate
  * accessible twin that can drift out of sync with the numbers beside it.
  */
-export function BarChart({ title, rows, max, axis, unit }: ChartProps) {
+export function BarChart({ title, rows, max, axis, unit, footnote }: ChartProps) {
   return (
     <figure className="lr-figure">
-      <Caption title={title} axis={axis} />
+      <Caption title={title} axis={axis} footnote={footnote} />
 
       <table className="lr-chart">
         <caption className="sr-only">
@@ -104,80 +109,6 @@ export function GroupedBarChart({ title, axis, unit, groups, max }: GroupedProps
               </tr>
             )),
           )}
-        </tbody>
-      </table>
-    </figure>
-  );
-}
-
-export interface ChangeRow {
-  label: string;
-  /** Signed percentage against the baseline: negative is less of it, positive is more. */
-  value: number;
-  display: string;
-}
-
-interface ChangeChartProps {
-  title: string;
-  axis: string;
-  unit: string;
-  rows: ChangeRow[];
-  max: number;
-}
-
-/**
- * Change against a baseline that sits on the zero line, so a bar's direction is
- * the finding and its length the size of it. Every bar is the new engine, so
- * every bar carries the accent; colouring the regressions differently would
- * repaint the meaning whenever a number crossed the line.
- */
-export function ChangeChart({ title, axis, unit, rows, max }: ChangeChartProps) {
-  return (
-    <figure className="lr-figure">
-      <figcaption className="lr-figcaption">
-        <b>{title}</b>
-        <span className="lr-mono">{axis}</span>
-      </figcaption>
-
-      <table className="lr-chart">
-        <caption className="sr-only">
-          {title}, measured in {unit}
-        </caption>
-        <tbody>
-          {rows.map((row) => {
-            const width = `${Math.max((Math.abs(row.value) / max) * 50, 0.6)}%`;
-            return (
-              <tr key={row.label}>
-                <th scope="row" className="lr-chart-label">
-                  {row.label}
-                </th>
-                <td className="lr-chart-cell">
-                  <span className="lr-track lr-change-track" aria-hidden="true">
-                    <span
-                      className={
-                        row.value < 0
-                          ? 'lr-change-fill lr-change-less'
-                          : 'lr-change-fill lr-change-more'
-                      }
-                      style={{ width }}
-                    />
-                  </span>
-                </td>
-                <td className="lr-chart-value">{row.display}</td>
-              </tr>
-            );
-          })}
-          <tr aria-hidden="true">
-            <td />
-            <td>
-              <span className="lr-change-axis">
-                <span>less</span>
-                <span>0</span>
-                <span>more</span>
-              </span>
-            </td>
-            <td />
-          </tr>
         </tbody>
       </table>
     </figure>

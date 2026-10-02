@@ -1,39 +1,12 @@
-'use client';
-
-import { useReducedMotion } from 'framer-motion';
 import Link from 'next/link';
-import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from 'recharts';
-import {
-  type ChartConfig,
-  ChartContainer,
-  ChartTooltip,
-  ChartTooltipContent,
-} from '@/components/ui/chart';
-import { Legend } from './charts';
 
 const heading = 'What reading costs, and where it loses';
 const description =
-  'Twenty fixed questions over the same corpus. Both paths pay for delivering the same concepts. The baseline is the OKF reference consumption pattern, running the same BM25 over the raw Markdown with perfect navigation and never a wrong turn.';
+  'Twenty fixed questions per corpus on one machine, every side billed for delivering the same answers. OKF is its reference consumption pattern, navigating with no wrong turns. ChromaDB is chromadb 1.5.9 with its default all-MiniLM-L6-v2 embeddings, run through Lang on Rock’s own harness on whichever of its paths is cheapest for the figure quoted.';
 
-const scale = [
-  { concepts: '500', manifest: 20549, slice: 20549 },
-  { concepts: '5,000', manifest: 205851, slice: 20419 },
-  { concepts: '20,000', manifest: 835922, slice: 20486 },
-];
+const chromaResults = 'https://github.com/langonrock/langonrock/blob/main/bench/results/chroma/README.md';
 
-const config = {
-  manifest: { label: 'Whole manifest', color: 'var(--lr-mark-dim)' },
-  slice: { label: 'One bundle slice', color: 'var(--lr-cobalt)' },
-} satisfies ChartConfig;
-
-/**
- * `linear` rather than a spline, because three measured points are all there is
- * and curvature between them would be drawn rather than measured. recharts runs
- * its reveal in JavaScript, out of reach of the stylesheet's reduced-motion block.
- */
 export function Cost() {
-  const animate = !useReducedMotion();
-
   return (
     <section className="lr-rule-top">
       <div className="lr-container py-24">
@@ -42,120 +15,59 @@ export function Cost() {
           <p className="lr-prose">{description}</p>
         </div>
 
-        <div className="lr-cost mt-14">
-          <div className="lr-cost-prose">
-            <p className="lr-prose">
-              A session that bills 116,357 tokens against that baseline bills 64,355 here, over 17
-              tool calls instead of 30. Thirteen fewer round trips is thirteen fewer inference turns
-              you wait through, so the answer lands sooner as well as cheaper. That is the synthetic
-              catalogue. Over real corpora the saving runs from 51% on the warehouse catalogue up to
-              98% on RFCs. The novels used to bottom out at 2%. Locating a passage instead of
-              fetching the whole chapter moved them to 69%.
-            </p>
+        <div className="lr-column mt-14">
+          <p className="lr-prose">
+            On the 500-concept catalogue Lang on Rock answers in 17 round trips, against 30 for the
+            OKF navigator and 20 for ChromaDB, because the agent reads the manifest once and makes
+            one batched fetch per question. It ranks the concept a question names in its top eight
+            75% of the time, against 70% for the raw files and 30% for ChromaDB. Tokens are where
+            ChromaDB wins on this corpus: its cheapest path bills 30,804 against Lang on Rock’s
+            56,928 and the navigator’s 116,357, charged as if it always fetched the right chunk.
+          </p>
 
-            <p className="lr-prose mt-5">
-              None of that is density. The manifest is larger than a well-kept{' '}
-              <code className="lr-mono">index.md</code>, 20,549 tokens against 16,575. The saving
-              comes from asking for one section instead of a whole document, which takes a read from
-              594 tokens to 213. The rest comes from narrowing to a bundle instead of reading the
-              whole tenant.
-            </p>
+          <p className="lr-prose mt-5">
+            The documents decide the token bill. On twenty-eight RFCs Lang on Rock bills 13,995
+            tokens in 16 round trips, against 27,629 for ChromaDB and 756,168 for the navigator. On
+            four novels it bills 39,862 by reading located passages instead of chapters, against
+            73,021 and 130,101, and on the Bible at one concept per book 39,395, against 77,469 and
+            1,278,420. ChromaDB bills fewer on Mrs Beeton’s recipes, 18,450 against 19,551, as it
+            does on the catalogue. On prose with no links to batch, round trips even out at about
+            one per question for all three.
+          </p>
 
-            <p className="lr-prose mt-5">
-              Which way to read depends on the corpus, not on a setting. The manifest is paid once a
-              session and a search once a question, so the crossover is the ratio between the
-              manifest and one search result, and over twenty questions it lands near twenty. The
-              RFCs sit at 2 and read cheaper through the manifest. Mrs Beeton&rsquo;s recipes sit at
-              101 and read cheaper through search. The MCP server measures the manifest at startup
-              and writes the verdict into the tool&rsquo;s description.
-            </p>
+          <p className="lr-prose mt-5">
+            On no corpus did Lang on Rock find the right concept less often than either. Asked by
+            name, it found it for every question over the recipes and over the RFCs, against 90% for
+            both the raw files and ChromaDB on the recipes and 95% for both on the RFCs. Asked by
+            description, it found it for 80% of the recipe questions, against 55% and 50%.
+          </p>
 
-            <p className="lr-prose mt-5">
-              Compiling used to cost ranking. The frontmatter the compiler strips repeated the
-              concept id in its <code className="lr-mono">resource</code> and{' '}
-              <code className="lr-mono">sources</code> URLs, which happened to help the ranker.
-              Indexing each concept&rsquo;s own names gave it back. Its id and its frontmatter title
-              now weigh above the other fields, and hit rate lands at 75% against the
-              baseline&rsquo;s 70%, mean reciprocal rank at 0.44 against 0.43. What still loses,
-              narrowly, is ranking on plain prose. The raw files keep a slightly better top position
-              on the novels, 0.72 mean reciprocal rank against 0.69. The session cost no longer
-              follows it, because{' '}
-              <code className="lr-mono">find</code> gives prose the sub-document addressing its
-              missing headings never could. A 3,244-token chapter read becomes a 513-token window.
-            </p>
+          <p className="lr-prose mt-5">
+            Nothing in it embeds anything. A 5,000-concept catalogue is searchable 0.38 s after
+            Lang on Rock starts compiling it, against 89 s for ChromaDB to embed it, and its compiled
+            snapshot takes 5.4 MiB against the 67.5 MiB ChromaDB writes. BM25 over the raw files is
+            faster at both: searchable in 0.31 s, and 0.24 ms a query against Lang on Rock’s 0.52 ms,
+            because Lang on Rock also locates the passage in its top hits. ChromaDB takes 72 ms a
+            query, embedding the question included.
+          </p>
 
-            <p className="lr-prose lr-note mt-8">
-              Synthetic corpus, a deliberately crude <code className="lr-mono">chars / 4</code> token
-              estimate, one script on one machine. Treat all of it as an order of magnitude and
-              measure your own bundles.{' '}
-              <Link
-                href="/docs/architecture/benchmarks"
-                className="lr-link text-[color:var(--lr-ink)]"
-              >
-                The full tables, and the method behind them
-              </Link>
-              .
-            </p>
-          </div>
-
-          <figure className="lr-cost-figure">
-            <figcaption className="lr-cost-title">
-              Tokens to read, as the tenant grows by bundles of 500
-            </figcaption>
-
-            <ChartContainer config={config}>
-              <AreaChart accessibilityLayer data={scale} margin={{ left: 4, right: 12, top: 8 }}>
-                <CartesianGrid vertical={false} />
-                <XAxis dataKey="concepts" tickLine={false} axisLine={false} tickMargin={8} />
-                <YAxis
-                  tickLine={false}
-                  axisLine={false}
-                  tickMargin={8}
-                  tickCount={3}
-                  width={44}
-                  tickFormatter={(value: number) => `${Math.round(value / 1000)}k`}
-                />
-                <ChartTooltip
-                  cursor={false}
-                  content={<ChartTooltipContent labelFormatter={(value) => `${value} concepts`} />}
-                />
-                <defs>
-                  <linearGradient id="fillManifest" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="var(--color-manifest)" stopOpacity={0.8} />
-                    <stop offset="95%" stopColor="var(--color-manifest)" stopOpacity={0.08} />
-                  </linearGradient>
-                  <linearGradient id="fillSlice" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="var(--color-slice)" stopOpacity={0.8} />
-                    <stop offset="95%" stopColor="var(--color-slice)" stopOpacity={0.08} />
-                  </linearGradient>
-                </defs>
-                <Area
-                  dataKey="manifest"
-                  type="linear"
-                  fill="url(#fillManifest)"
-                  stroke="var(--color-manifest)"
-                  isAnimationActive={animate}
-                />
-                <Area
-                  dataKey="slice"
-                  type="linear"
-                  fill="url(#fillSlice)"
-                  stroke="var(--color-slice)"
-                  isAnimationActive={animate}
-                />
-              </AreaChart>
-            </ChartContainer>
-
-            <Legend
-              items={[{ label: 'Whole manifest' }, { label: 'One bundle slice', accent: true }]}
-            />
-
-            <p className="lr-cost-note">
-              The tenant grows by adding bundles. The slice a reader asks for does not, so it holds
-              at about 20,500 tokens while the whole manifest reaches 835,922. At 500 concepts there
-              is a single bundle and the two are the same number.
-            </p>
-          </figure>
+          <p className="lr-prose lr-note mt-8">
+            A synthetic catalogue and four public-domain corpora, a deliberately crude{' '}
+            <code className="lr-mono">chars / 4</code> token estimate, one machine. No session pays
+            for a miss: each is billed as if its first answer were the right one, which flatters
+            whoever ranks worst. Treat it as an order of magnitude and measure your own documents.{' '}
+            <Link
+              href="/docs/architecture/benchmarks"
+              className="lr-link text-[color:var(--lr-ink)]"
+            >
+              The OKF and Lang on Rock method
+            </Link>
+            , and{' '}
+            <a href={chromaResults} className="lr-link text-[color:var(--lr-ink)]">
+              the ChromaDB runs
+            </a>
+            .
+          </p>
         </div>
       </div>
     </section>

@@ -59,7 +59,7 @@ export function Lifecycle() {
         <ol className="mt-14">
           <Step index="01" title="Import">
             <p className="lr-prose lr-note">
-              Point langonrock at a folder where every subdirectory is a bundle of Markdown. It
+              Point Lang on Rock at a folder where every subdirectory is a bundle of Markdown. It
               becomes the tenant’s first commit, and the database remembers what each file looked
               like, so importing the folder again never overwrites an edit made since. A file changed
               on both sides fails the whole import instead of picking a winner.
@@ -123,8 +123,9 @@ export function Lifecycle() {
           Search takes the same path. Retrieval is BM25 over each concept’s names, manifest row and
           body, plus a one-hop expansion across the links, capped so that a hub concept cannot drag
           in half the manifest. There is no model anywhere in it, so the same query returns the same
-          set tomorrow, and it finds the right concept more often than the same ranker over the raw
-          files. A query returns in 1.65 ms at 20,000 concepts.
+          set tomorrow. Asked a question that names a concept, it ranks that concept in its top
+          eight 75% of the time, against 70% for the same ranker over the raw files and 30% for
+          ChromaDB’s embeddings. A query returns in 1.65 ms at 20,000 concepts.
         </p>
       </div>
     </section>

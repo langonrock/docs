@@ -18,6 +18,9 @@ const movedPages = [
 /** @type {import('next').NextConfig} */
 const config = {
   reactStrictMode: true,
+  // A lockfile in a parent directory would otherwise make Next infer it as the
+  // workspace root, so Turbopack would watch and resolve from far above this repo.
+  turbopack: { root: import.meta.dirname },
   headers: async () => [{ source: '/', headers: [{ key: 'Link', value: agentLinks }] }],
   redirects: async () =>
     movedPages.flatMap(([source, destination]) => [

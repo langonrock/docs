@@ -117,6 +117,17 @@
   }
 }
 
+/*
+ * Body copy that carries on a section head's argument starts in the head's prose
+ * column, so the page keeps its one spec-sheet edge rather than restarting at the
+ * container's.
+ */
+@media (min-width: 64rem) {
+  .lr-column {
+    margin-left: calc(22rem + 5rem);
+  }
+}
+
 /* Type -------------------------------------------------------------------- */
 
 .lr-display {
@@ -695,6 +706,9 @@
   line-height: 1.6;
   color: var(--lr-faint);
 }
+.lr-bench-better {
+  color: var(--lr-dim);
+}
 .lr-bench-foot {
   padding: 0.75rem 1.25rem;
   border-top: 1px solid var(--lr-rule-soft);
@@ -775,54 +789,6 @@
   vertical-align: middle;
   font-variant-numeric: tabular-nums;
 }
-.lr-change-track {
-  position: relative;
-}
-/*
- * The zero line is the old engine, the baseline every bar is measured from, so
- * it takes the control-boundary colour that clears the 3:1 graphic floor rather
- * than a hairline. It runs past the track into the row padding so the rows join
- * into one continuous axis.
- */
-.lr-change-track::after {
-  content: '';
-  position: absolute;
-  left: 50%;
-  top: -0.3rem;
-  bottom: -0.3rem;
-  width: 1px;
-  background: var(--lr-edge);
-}
-.lr-change-fill {
-  position: absolute;
-  top: 0;
-  height: 100%;
-  background: var(--lr-mark);
-  animation: lr-grow 800ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
-  animation-delay: 120ms;
-}
-.lr-change-more {
-  left: 50%;
-  border-radius: 0 2px 2px 0;
-}
-.lr-change-less {
-  right: 50%;
-  border-radius: 2px 0 0 2px;
-  animation-name: lr-grow-left;
-}
-@keyframes lr-grow-left {
-  from {
-    clip-path: inset(0 0 0 100%);
-  }
-}
-.lr-change-axis {
-  display: flex;
-  justify-content: space-between;
-  padding-top: 0.375rem;
-  font-family: var(--lr-mono);
-  font-size: 0.75rem;
-  color: var(--lr-faint);
-}
 .lr-legend {
   display: flex;
   flex-wrap: wrap;
@@ -846,52 +812,12 @@
   background: var(--lr-mark);
 }
 
-/* Cost -------------------------------------------------------------------- */
-
-/*
- * The argument and the one chart that carries it sit side by side, because the
- * divergence is the evidence for the paragraph next to it. The chart takes the
- * same frame as the bar charts, a title over a rule and nothing else, so the page
- * still reads as one set of figures rather than a borrowed card deck.
- */
-.lr-cost {
-  display: grid;
-  gap: 3rem;
-}
-@media (min-width: 72rem) {
-  .lr-cost {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 34rem);
-    gap: 5rem;
-    align-items: start;
-  }
-}
-.lr-cost-figure {
-  margin: 0;
-  min-width: 0;
-}
-.lr-cost-title {
-  display: block;
-  text-wrap: balance;
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: var(--lr-ink);
-  padding-bottom: 0.75rem;
-  border-bottom: 1px solid var(--lr-rule);
-  margin-bottom: 1rem;
-}
-.lr-cost-note {
-  margin-top: 0.875rem;
-  font-size: 0.8125rem;
-  line-height: 1.6;
-  color: var(--lr-faint);
-}
-
 /* What a commit promises -------------------------------------------------- */
 
 /*
- * The cost section's split, for the same reason: the contract in prose on the
- * left, and on the right the directory it is made of, framed as a figure so the
- * listing reads as evidence rather than as decoration.
+ * The contract in prose on the left, and on the right the directory it is made
+ * of, framed as a figure so the listing reads as evidence rather than as
+ * decoration.
  */
 .lr-promise {
   display: grid;
@@ -1003,8 +929,7 @@
 @media (prefers-reduced-motion: reduce) {
   .lr-row,
   .lr-b,
-  .lr-fill,
-  .lr-change-fill {
+  .lr-fill {
     animation-duration: 1ms;
     animation-delay: 0ms;
   }
