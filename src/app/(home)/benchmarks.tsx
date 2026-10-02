@@ -9,6 +9,7 @@ const chromaResults = 'https://github.com/langonrock/langonrock/blob/main/bench/
 interface Benchmark {
   id: string;
   label: string;
+  better: 'higher' | 'lower';
   note: string;
   chart: React.ReactNode;
 }
@@ -17,9 +18,11 @@ const benchmarks: Benchmark[] = [
   {
     id: 'retrieval',
     label: 'Retrieval',
+    better: 'higher',
     note: 'Twenty questions that name the concept they ask about, over a 500-concept catalogue. OKF is BM25 over the raw files; ChromaDB embeds 1,000-character chunks with all-MiniLM-L6-v2. Asked by description instead, langonrock and OKF find it 95% of the time and ChromaDB 70%, and on no corpus measured did langonrock find it less often than either.',
     chart: (
       <BarChart
+        footnote
         title="Right concept in the top 8"
         axis="100%"
         unit="percent of questions"
@@ -35,9 +38,11 @@ const benchmarks: Benchmark[] = [
   {
     id: 'calls',
     label: 'Round trips',
+    better: 'lower',
     note: 'The same twenty questions, each side on its path with the fewest calls. langonrock reads the manifest once and makes one batched fetch for each of the sixteen questions that need a document. ChromaDB returns its top eight chunks with their text, one search per question. The OKF navigator reads index.md, then each answer’s file and the files it links to. On prose with no links to batch, all three need about one per question: 21, 21 and 20 on four novels.',
     chart: (
       <BarChart
+        footnote
         title="Tool calls"
         axis="30 calls"
         unit="tool calls"
@@ -53,9 +58,11 @@ const benchmarks: Benchmark[] = [
   {
     id: 'tokens',
     label: 'Tokens',
-    note: 'Twenty questions over four novels, one concept per chapter, each side on its cheapest path. langonrock ranks and then reads a located window instead of the chapter, ChromaDB returns its top eight chunks with their text, and the navigator reads whole chapters. On the catalogue ChromaDB’s cheapest path bills fewer, 30,804 against 56,928, charged as if it always fetched the right chunk, and on the recipes 18,437 against 19,551.',
+    better: 'lower',
+    note: 'Twenty questions over four novels, one concept per chapter, each side on its cheapest path. langonrock ranks and then reads a located window instead of the chapter, ChromaDB returns its top eight chunks with their text, and the navigator reads whole chapters. On the catalogue ChromaDB’s cheapest path bills fewer, 30,804 against 56,928, charged as if it always fetched the right chunk, and on the recipes 18,450 against 19,551.',
     chart: (
       <BarChart
+        footnote
         title="Tokens billed"
         axis="130,101 tokens"
         unit="tokens"
@@ -63,25 +70,7 @@ const benchmarks: Benchmark[] = [
         rows={[
           { label: 'langonrock', value: 39862, display: '39,862', accent: true },
           { label: 'OKF navigator', value: 130101, display: '130,101' },
-          { label: 'ChromaDB', value: 73695, display: '73,695' },
-        ]}
-      />
-    ),
-  },
-  {
-    id: 'build',
-    label: 'Build',
-    note: 'Making a 5,000-concept catalogue searchable. langonrock compiles it and builds its BM25 index; OKF loads the raw files and builds the same BM25; ChromaDB embeds every document with all-MiniLM-L6-v2 and stores one vector each, its fastest grain, while 1,000-character chunks take 361 s. On every smaller corpus measured the raw files build slightly faster, 0.10 s against 0.11 s at 500 concepts.',
-    chart: (
-      <BarChart
-        title="Seconds to a searchable index"
-        axis="145 s"
-        unit="seconds"
-        max={145.3}
-        rows={[
-          { label: 'langonrock', value: 0.431, display: '0.43 s', accent: true },
-          { label: 'OKF raw files', value: 0.908, display: '0.91 s' },
-          { label: 'ChromaDB', value: 145.3, display: '145 s' },
+          { label: 'ChromaDB', value: 73021, display: '73,021' },
         ]}
       />
     ),
@@ -147,7 +136,13 @@ export function Benchmarks() {
             className={benchmark.id === active ? 'lr-bench-body' : 'lr-bench-body lr-bench-off'}
           >
             {benchmark.chart}
-            <p className="lr-bench-note">{benchmark.note}</p>
+            <p className="lr-bench-note">
+              <span className="lr-bench-better">
+                <span aria-hidden="true">* </span>
+                {benchmark.better === 'higher' ? 'Higher is better.' : 'Lower is better.'}
+              </span>{' '}
+              {benchmark.note}
+            </p>
           </div>
         ))}
       </div>

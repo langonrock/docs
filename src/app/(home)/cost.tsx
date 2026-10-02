@@ -29,27 +29,26 @@ export function Cost() {
             The documents decide the token bill. On twenty-eight RFCs langonrock bills 13,995
             tokens in 16 round trips, against 27,629 for ChromaDB and 756,168 for the navigator. On
             four novels it bills 39,862 by reading located passages instead of chapters, against
-            73,695 and 130,101, and on the Bible at one concept per book 39,395, against 77,466 and
-            1,278,420. ChromaDB bills fewer on Mrs Beeton’s recipes, 18,437 against 19,551, as it
+            73,021 and 130,101, and on the Bible at one concept per book 39,395, against 77,469 and
+            1,278,420. ChromaDB bills fewer on Mrs Beeton’s recipes, 18,450 against 19,551, as it
             does on the catalogue. On prose with no links to batch, round trips even out at about
             one per question for all three.
           </p>
 
           <p className="lr-prose mt-5">
             On no corpus did langonrock find the right concept less often than either. Asked by
-            name, it found it for every question over the recipes and over the RFCs, against 90%
-            and 95% for the raw files and 95% for ChromaDB on both. Asked by description, it found
-            it for 80% of the recipe questions, against 55% and 50%.
+            name, it found it for every question over the recipes and over the RFCs, against 90% for
+            both the raw files and ChromaDB on the recipes and 95% for both on the RFCs. Asked by
+            description, it found it for 80% of the recipe questions, against 55% and 50%.
           </p>
 
           <p className="lr-prose mt-5">
-            Nothing in it embeds anything. A 5,000-concept catalogue is searchable 0.43 s after
-            langonrock starts compiling it, against 0.91 s for BM25 over the raw files and 145 s
-            for ChromaDB to embed it, and its compiled snapshot takes 5.4 MiB against the 67 MiB
-            ChromaDB writes. On the smaller corpora the raw files build slightly faster, and they
-            answer one query faster at every size, 0.45 ms against 0.83 ms here, because
-            langonrock also locates the passage in its top hits; ChromaDB takes 90 ms, embedding
-            the question included.
+            Nothing in it embeds anything. A 5,000-concept catalogue is searchable 0.38 s after
+            langonrock starts compiling it, against 89 s for ChromaDB to embed it, and its compiled
+            snapshot takes 5.4 MiB against the 67.5 MiB ChromaDB writes. BM25 over the raw files is
+            faster at both: searchable in 0.31 s, and 0.24 ms a query against langonrock’s 0.52 ms,
+            because langonrock also locates the passage in its top hits. ChromaDB takes 72 ms a
+            query, embedding the question included.
           </p>
 
           <p className="lr-prose lr-note mt-8">

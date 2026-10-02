@@ -12,12 +12,17 @@ interface ChartProps {
   max: number;
   axis: string;
   unit: string;
+  /** Marks the title for the footnote under the chart that says which way is better. */
+  footnote?: boolean;
 }
 
-function Caption({ title, axis }: { title: string; axis: string }) {
+function Caption({ title, axis, footnote }: { title: string; axis: string; footnote?: boolean }) {
   return (
     <figcaption className="lr-figcaption">
-      <b>{title}</b>
+      <b>
+        {title}
+        {footnote ? <span aria-hidden="true">*</span> : null}
+      </b>
       <span className="lr-mono">0 – {axis}</span>
     </figcaption>
   );
@@ -28,10 +33,10 @@ function Caption({ title, axis }: { title: string; axis: string }) {
  * same DOM. A screen reader reads labels and values; nobody needs a separate
  * accessible twin that can drift out of sync with the numbers beside it.
  */
-export function BarChart({ title, rows, max, axis, unit }: ChartProps) {
+export function BarChart({ title, rows, max, axis, unit, footnote }: ChartProps) {
   return (
     <figure className="lr-figure">
-      <Caption title={title} axis={axis} />
+      <Caption title={title} axis={axis} footnote={footnote} />
 
       <table className="lr-chart">
         <caption className="sr-only">
