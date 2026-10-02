@@ -1,0 +1,174 @@
+---
+title: History and restore
+description: Every commit is a revision you can list, and any retained one can be restored as a new commit.
+icon: RotateCcwClock
+---
+
+Each commit publishes a revision: a transaction, a single-document write, an import that changed
+something, a migration, and a restore itself. Revisions form a chain through `parent`, and `HEAD`
+names the newest. Nothing in the chain is ever rewritten. It only grows, until
+[collection](/docs/database/maintenance) prunes its oldest end or an explicit
+[repair](/docs/database/durability) resets it.
+
+## A revision is not a snapshot
+
+A **revision** identifies a commit. A **snapshot** identifies the compiled bytes of the read model
+that commit published. Two revisions can share a snapshot: restoring an earlier state produces a new
+revision whose snapshot is the earlier one, byte for byte, because the same documents compile to
+the same bytes.
+
+Use revision ids for anything about commits: `expectedRevision` on a transaction, history and
+restore. Use snapshot ids for anything about the read model: the manifest's `ETag`, the `snapshot`
+verb, and deciding whether a cached manifest is stale.
+
+## Reading history
+
+```sh
+langonrock history --data ./data --tenant acme --limit 20 | jq
+```
+
+```json
+{
+  "revisions": [
+    {
+      "revision": "984e1dcb03ea2403acd84528949187909ef0e327504f03d92e00b199ba9dc9c9",
+      "parent": "7a4b86c1a08808561bab370254e5ce68157797da2e56326a3406a4b6b586075c",
+      "snapshot": "0203add32834701b39b60d1b330ad88349a42c93e52bf29d0a660961372098ff",
+      "created": "2026-10-01T02:36:23.918Z",
+      "concepts": 4,
+      "bundles": [
+        "ops",
+        "sales"
+      ]
+    },
+    {
+      "revision": "7a4b86c1a08808561bab370254e5ce68157797da2e56326a3406a4b6b586075c",
+      "parent": null,
+      "snapshot": "cd9078b9af0b1d912a9e6e0c8c12d409be3aac3394085d56dc618458b5e23ad8",
+      "created": "2026-10-01T02:35:46.915Z",
+      "concepts": 3,
+      "bundles": [
+        "ops",
+        "sales"
+      ]
+    }
+  ]
+}
+```
+
+That is an import followed by one transaction. The first revision of a tenant has no parent.
+
+Pages come newest first, 20 revisions by default and at most 100. When more remain, the page ends
+with a `next` cursor; pass it back as `--before` on the command line or `before` everywhere else to
+continue. A cursor is opaque and belongs to one tenant, so anything else is refused with
+`invalid history cursor`. A cursor whose revision has since been collected is refused with
+`history cursor expired or is not committed; restart history pagination`.
+
+History reads revision descriptors and nothing else, so it costs the same on any tenant: a page of
+five took about 1.1 ms at 500, 5,000 and 20,000 concepts, on an Apple M1 Pro under Bun 1.3.12.
+
+| Surface | Call                                              |
+| ------- | ------------------------------------------------- |
+| Library | `history({ limit: 20, before })`                  |
+| HTTP    | `GET /v1/{tenant}/history?limit=20&before=…`      |
+| CLI     | `history --limit 20 --before …`, or `query "$DSN" history` |
+| MCP     | the `history` tool, with `--database-tools`       |
+
+Over HTTP a read-only token is enough to list history.
+
+## Restoring a revision
+
+`restore` takes the revision you want back and the revision you believe is current. It verifies the
+chosen revision's stored data, then publishes that revision's complete set of documents as a new
+commit on top of the current one.
+
+```sh
+langonrock restore 7a4b86c1a08808561bab370254e5ce68157797da2e56326a3406a4b6b586075c \
+  --expected-revision 984e1dcb03ea2403acd84528949187909ef0e327504f03d92e00b199ba9dc9c9 \
+  --data ./data --tenant acme | jq
+```
+
+```json
+{
+  "revision": "496744db3e3c76ce67cb8ba028b15fc6558ed3f3a5f3cd1b7827c628df0aab57",
+  "snapshot": "cd9078b9af0b1d912a9e6e0c8c12d409be3aac3394085d56dc618458b5e23ad8",
+  "concepts": 3,
+  "bundles": [
+    "ops",
+    "sales"
+  ],
+  "diagnostics": []
+}
+```
+
+The new revision's snapshot is the first import's, `cd9078b9af0b…`, because the documents are the
+same again. The transaction it undid is still in history, one step back:
+
+```sh
+langonrock history --data ./data --tenant acme --limit 2 \
+  | jq -r '.revisions[] | [.revision[:12], .parent[:12], .snapshot[:12], .concepts] | @tsv'
+```
+
+```
+496744db3e3c	984e1dcb03ea	cd9078b9af0b	3
+984e1dcb03ea	7a4b86c1a088	0203add32834	4
+```
+
+So a restore can itself be undone, by restoring the revision it replaced.
+
+### The expected revision is required
+
+A transaction may omit `expectedRevision`. A restore may not: it replaces every document in the
+tenant at once, so it has to know which state it is replacing. Running the same restore a second
+time is refused, because the current revision is no longer the one it names:
+
+```
+database changed: re-read the revision and document hashes
+```
+
+### Only retained revisions can come back
+
+Restore reaches as far back as history does. A revision that
+[collection](/docs/database/maintenance) has pruned is gone, and asking for it is refused with
+`revision is not in retained committed history`. Choose the retention you want before you need it.
+
+### Whole tenant, current revision only
+
+Restore works on the whole tenant; there is no verb that restores one document. Every read,
+`export` included, sees the current revision. To get an older state out as Markdown, restore it,
+export it, then restore forward to the revision you left if you want the current state back.
+
+Folders you import keep their import baselines through a restore. The next import treats the
+restored documents like any other database edit: a file the folder has not changed since its last
+import leaves the restored version alone, and a file changed on both sides is a conflict. See
+[Import, watch and export](/docs/database/folders).
+
+| Surface | Call                                                       |
+| ------- | ---------------------------------------------------------- |
+| Library | `restore({ revision, expectedRevision })`                  |
+| HTTP    | `POST /v1/{tenant}/restore` with `{"revision", "expectedRevision"}`, write token |
+| CLI     | `restore <revision> --expected-revision <current>`         |
+| MCP     | the `restore` tool, with `--database-tools`                |
+
+The library reads the same way end to end:
+
+```ts
+import { open } from 'langonrock'
+
+const db = open('okf:///var/data?tenant=acme')
+const page = await db.history({ limit: 20 })
+const current = page.revisions[0]
+const older =
+  page.next === undefined ? undefined : await db.history({ limit: 20, before: page.next })
+const selected = older?.revisions[0]
+
+if (current !== undefined && selected !== undefined) {
+  await db.restore({ revision: selected.revision, expectedRevision: current.revision })
+}
+
+await db.close()
+```
+
+Restoring took 16.6, 71.4 and 258.2 ms at 500, 5,000 and 20,000 concepts on the same machine and
+runtime. It grows with the tenant because the chosen revision is verified in full before it is
+published again.

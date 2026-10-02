@@ -8,7 +8,8 @@ brand
 
 Technically literate visitors arriving from a link, a post, or a search: engineers building
 agents, people already operating an embedding pipeline they did not enjoy setting up, people
-already using OKF, and data platform teams who own schemas, metrics and runbooks.
+already using OKF, teams keeping what their agents know in folders or git who want commits and an
+undo, and data platform teams who own schemas, metrics and runbooks.
 They arrive cold, with no prior commitment to the project, and they give the page a few seconds
 before deciding whether it is serious.
 
@@ -18,18 +19,20 @@ repository convinced it is worth a look, or into the documentation to check a sp
 
 ## Product Purpose
 
-Lang on Rock is the documentation site for langonrock, a document database for AI agents. It is a
-multi-tenant store that compiles Open Knowledge Format bundles into a dense read model so an agent
-spends as few tokens and as few round trips as possible reading them. It answers by id and by
+Lang on Rock is the documentation site for langonrock, a document database for what your agents
+know. It stores Markdown documents in its own engine, commits related edits atomically, keeps a
+history of revisions with restore, and compiles every commit into a dense read model so an agent
+spends as few tokens and as few round trips as possible reading it. It answers by id and by
 lexical search rather than by vector similarity, so there is no embedding model in the path, no
 vector database to operate and no re-index after an edit.
 
 The root page exists to establish credibility fast and hand the visitor to the repository. It is
 not a funnel and there is nothing to sign up for. Success is a visitor who can say what they would
 get, believes the numbers were actually measured, and clicks through. The first of those three is
-the one the page keeps failing, and it has failed it twice: once by explaining the compiler well
-and never saying what the reader ends up with, and once by opening on the migration the reader does
-not have to do instead of the bill they stop paying.
+the one the page keeps failing, and it has failed it three times: once by explaining the compiler
+well and never saying what the reader ends up with, once by opening on the migration the reader
+does not have to do instead of the bill they stop paying, and once by still selling only that bill
+after the product had become a database the reader could not see on the page.
 
 ## Brand Personality
 
@@ -37,8 +40,10 @@ Precise, measured, unshowy.
 
 The project's own voice states numbers, names its method, and admits where it loses. The benchmark
 section prints the 2% saving on four novels next to the 98% on RFCs, and says plainly that prose
-with nothing to compile is the case this store does not help. The site should sound like the same
-person wrote it.
+with nothing to compile is the case this store does not help. The hero prints the one engine timing
+that fails its limit, opening a tenant 34% slower than before, and the 69% more disk that retained
+revisions cost, next to the timings that improved. The site should sound like the same person
+wrote it.
 
 Tone is declarative and specific. No superlatives, no urgency, no persuasion the evidence does not
 support. Where a claim has a caveat, the caveat appears next to the claim rather than in a
@@ -70,15 +75,18 @@ mechanism does not believe the number. Mechanism-first titles are the failure mo
 already had once, when six capabilities were called things like "Section addressing" and
 "Byte-deterministic output".
 
-**The fold carries the bill, not the migration.** The hero states what the reader stops paying and
-pairs it with the measurement that backs it: 45% fewer tokens, thirteen fewer round trips, up to 98%
-where the documents carry real structure. The switching cost is real and worth saying. The compiler
-does not take the Markdown over, and okflint, the visualizer and Obsidian keep working on the same
-folder. But it answers an objection only a current OKF user has, and it is the wrong thing to spend
-the strongest position on the page on. It belongs in the capabilities.
+**The fold says what it is, then shows the bill.** The hero names the category first: a document
+database for what your agents know, with Markdown in, atomic commits, history and restore. The bill
+follows as the evidence that this database is built for agents: 45% fewer tokens and thirteen fewer
+round trips, charted beside the sentence. This reverses the rule the page had before, which put the
+bill alone on the fold. That rule was right while the product was a read model over a folder the
+reader kept owning. Once langonrock owned the documents, a fold that only priced the reads hid the
+thing a visitor is being asked to trust with their data. The switching story, import, export and
+migration, still answers an objection only some readers have, so it stays in the capabilities.
 
-**Show the artifact, do not describe it.** The manifest is the product. A visitor should read real
-rows with real values before reading any sentence about what a manifest is.
+**Show the artifact, do not describe it.** The artifacts are the product: the commands, the
+manifest rows, and the tenant directory a commit is made of. A visitor should see the real thing,
+with real names and real values, before reading any sentence about what it is.
 
 **State the number, then state its limit.** Every claim on the page carries the qualification the
 project itself makes. The honesty is the differentiator, not a liability.
@@ -90,9 +98,9 @@ the reader scroll through four sections to reach the one fact that decides it.
 appears, it marks something the reader needs to distinguish: the accented series in a chart, the
 prompt in a command, the separator bytes on the share card.
 
-The page holds two exceptions and neither is an accident. The headline sets "faster, cheaper" in
-Geist Pixel and in cobalt, because those two words are the entire claim and the rest of the sentence
-is context. The traffic lights on the benchmark window are the weaker one: red, amber and green
+The page holds two exceptions and neither is an accident. The headline sets "document database" in
+Geist Pixel and in cobalt, because those two words are the category the page leads with and the rest
+of the sentence is context. The traffic lights on the benchmark window are the weaker one: red, amber and green
 carrying no meaning at all. Two is the budget. A third would make the first two read as styling
 rather than emphasis.
 

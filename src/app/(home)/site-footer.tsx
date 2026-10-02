@@ -9,14 +9,14 @@ const columns = [
     title: 'Start',
     links: [
       { label: 'Quickstart', href: '/docs/getting-started/quickstart' },
+      { label: 'Transactions', href: '/docs/database/transactions' },
       { label: 'MCP server', href: '/docs/guides/mcp' },
-      { label: 'Large tenants', href: '/docs/guides/large-tenants' },
     ],
   },
   {
     title: 'Learn',
     links: [
-      { label: 'How it works', href: '/docs/architecture/read-model' },
+      { label: 'Storage', href: '/docs/architecture/storage' },
       { label: 'Benchmarks', href: '/docs/architecture/benchmarks' },
       { label: 'Cost model', href: '/docs/architecture/cost-model' },
     ],
@@ -64,7 +64,7 @@ export function SiteFooter() {
           ))}
         </div>
 
-        <p className="lr-footer-legal">MIT licence. Compiled from Open Knowledge Format bundles.</p>
+        <p className="lr-footer-legal">MIT licence. Markdown in, Markdown out.</p>
       </div>
     </footer>
   );

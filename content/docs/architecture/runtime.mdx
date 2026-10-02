@@ -1,13 +1,14 @@
 ---
-title: Runtime and distribution
-description: Why Bun, what it forced, and what shipping a signed binary actually costs.
+title: Runtime and platforms
+description: Why Bun, what the C adapter does on each operating system, and how the binaries are built and checked.
 icon: Cpu
 ---
 
 ## The workload barely involves the language
 
 Look at what runs on the hot path. Read a file region, slice bytes, write to a socket. Hash on
-write, zstd decompress, HTTP, filesystem watching.
+write, zstd compress and decompress, HTTP, filesystem watching, and on every commit a handful of
+flushes and one atomic replace.
 
 Almost all of that is I/O or work delegated to native code, with essentially no CPU-bound
 JavaScript. The bottleneck is syscalls. This is exactly the profile where the gap between Go and
@@ -15,29 +16,56 @@ Bun disappears into noise.
 
 ## Bun
 
-`bun build --compile` produces a self-contained executable with the runtime embedded.
-Cross-compilation covers all six targets, including `bun-windows-arm64`, added in 2026.
-
-```sh
-bun build --compile --target=bun-windows-arm64 ./src/cli.ts --outfile langonrock.exe
-```
-
-Binary size runs about 60 MB against 10 to 15 MB for Go. Noticeable for a CLI, not fatal.
+`bun build --compile` produces a self-contained executable with the runtime embedded. The macOS
+arm64 binary is about 67 MB, against 10 to 15 MB for a Go binary of similar scope. Noticeable for a
+CLI, not fatal.
 
 **In favor:**
 
 - The MCP TypeScript SDK is the most mature of the three, and this project ships an MCP server
 - LangGraph JS shares types with the client, so one schema and no drift
-- `bun:sqlite` is built in, which is exactly the fallback plan if analytical queries appear
-- Development speed, which matters on a project that will change shape several times
+- Development speed, which matters on a project that has already changed shape several times
 
 **Against:**
 
-- 60 MB per target
+- The binary size, on every target
 - Windows is Bun's newest platform, and Windows is already where the storage traps live. Stacking
-  the least-proven runtime there is the objection worth taking seriously.
+  the least-proven runtime there is the objection worth taking seriously, and it is where
+  verification is still open.
 - A long-lived daemon under GC needs more care in JS than in Go
 - Bun moves fast and occasionally breaks things, which weighs more on a data layer meant to last
+
+## What Bun could not provide
+
+A database needs three things from the operating system that Bun's filesystem APIs do not expose:
+a lock the kernel releases when its process dies, a flush that actually reaches the disk on macOS,
+and an atomic replace with write-through on Windows.
+
+They come from a project-owned Node-API binding, about three hundred lines of C across
+`store_platform.c`, `posix.h`, `windows.h` and `api.h`. Everything else, every format, transaction,
+history record and recovery path, is TypeScript. There is no node-gyp, no downloaded header and no
+Python: `scripts/build-native.ts` calls the host compiler directly,
+`cc -std=c11 -O2 -Wall -Wextra -Werror -shared -fPIC`, or `cl /LD` in an MSVC developer
+environment.
+
+| Operation                       | macOS                                      | Linux    | Windows                                  |
+| ------------------------------- | ------------------------------------------ | -------- | ---------------------------------------- |
+| Lock, never blocking            | `flock`                                    | `flock`  | `LockFileEx`                             |
+| Flush a file                    | `F_FULLFSYNC`                              | `fsync`  | `FlushFileBuffers`                       |
+| Flush a directory               | `fsync`                                    | `fsync`  | Skipped                                  |
+| Order writes before the new HEAD | `F_BARRIERFSYNC`, else `F_FULLFSYNC`      | `fsync`  | `FlushFileBuffers`                       |
+| Replace HEAD                    | `rename`                                   | `rename` | `MoveFileExW`, replace and write-through |
+
+On macOS a plain `fsync` does not ask the drive to empty its cache, which is why a flush there is
+`F_FULLFSYNC`. A lock handle survives JavaScript garbage collection until it is released, a
+finalizer closes an abandoned one as a backstop, and the operating system releases the lock when
+its process ends.
+
+`bun:ffi` was the obvious shortcut and was not taken: Bun's documentation marks it experimental and
+recommends Node-API for stable native integration.
+
+The remote client, `langonrock/client`, never loads the adapter. An app that only talks to a
+server over HTTP installs the package without Bun or a C compiler.
 
 ## One design change Bun forces
 
@@ -48,8 +76,9 @@ not get an error, you lose the process. POSIX makes deleting a mapped file safe.
 guarantee.
 
 The fix is to not use mmap at all, and it is right regardless of language. A 6k-token manifest is
-about 25 KB, so reading it takes microseconds. `Bun.file().slice(offset, len)` gives a lazy byte
-range that streams to the socket without copying into the JS heap.
+about 25 KB, so reading it takes microseconds. A reader keeps the snapshot open and reads the byte
+ranges it needs with positioned reads, so nothing is mapped and an open descriptor is all a
+collection has to respect.
 
 mmap only pays at a scale this project does not reach, and here it imports real risk for nothing.
 
@@ -67,64 +96,179 @@ covers all three platforms well. Given the decision to drop mmap, that advantage
 
 ## The insurance that makes this reversible
 
-Write the on-disk format specification as its own document, separate from the implementation. The
-`.tnt` layout, section ordering, hash algorithm, naming scheme.
+The formats are specified on their own, in [storage](/docs/architecture/storage): the TNT1 layout,
+the record frame, the naming scheme and the hash. The format is the durable artifact and the reader
+is disposable. If Bun disappoints as a daemon, a reader in Go can open the same bytes and nobody
+migrates anything.
 
-The format is the durable artifact and the reader is disposable. If Bun disappoints as a daemon in
-two years, rewrite the reader in Go against the same bytes and nobody migrates anything.
+## Building and releasing
 
-## Distribution
+A tag matching `v*` builds six binaries, each on a runner of its own operating system and
+architecture, checksums them into `SHA256SUMS`, and publishes a GitHub Release. The release refuses
+to run when the tag disagrees with `package.json`, which is the cheapest guard against publishing a
+binary whose `--version` lies.
 
-A tag matching `v*` builds six binaries, checksums them, and publishes a GitHub Release.
-`install.sh` detects OS and architecture, verifies the checksum, and drops the binary in
-`~/.local/bin`.
+| Target                | Runner             |
+| --------------------- | ------------------ |
+| `bun-darwin-arm64`    | `macos-latest`     |
+| `bun-darwin-x64`      | `macos-15-intel`   |
+| `bun-linux-x64`       | `ubuntu-latest`    |
+| `bun-linux-arm64`     | `ubuntu-24.04-arm` |
+| `bun-windows-x64`     | `windows-latest`   |
+| `bun-windows-arm64`   | `windows-11-arm`   |
 
-The release refuses to run when the tag disagrees with `package.json`, which is the cheapest guard
-against publishing a binary whose `--version` lies.
+There is no cross-compilation. Each binary embeds the adapter compiled for its own architecture,
+and `scripts/build.ts` refuses a target that is not the host's:
 
-### The matrix is split by runner, not by convenience
+```
+native adapter requires a bun-linux-arm64 runner; cross-compilation is unsupported
+```
 
-Bun cross-compiles all six targets from any host, so one Linux job would be the obvious shape. It
-does not work. The codesign defect below applies to *any* darwin output, including one
-cross-compiled from Linux, and `codesign` exists only on macOS.
+The CLI compiles with `bun build --compile --bytecode --format=esm`, which keeps its top-level
+`await` and skips parsing at startup.
 
-So the two darwin targets build on `macos-latest` and the other four on `ubuntu-latest`. A
-single-runner matrix would ship macOS binaries that die on launch with no error.
+Every runner checks its own work. Before building, it compiles a small executable that embeds the
+adapter, checks on macOS that `codesign --verify --strict` accepts it as built, and runs it. After
+building, it stores a real bundle with the new binary and reads it back, so a binary that launches
+but cannot compile or read a snapshot fails there instead of in someone's install.
 
-## Signing arrives earlier than expected
+`install.sh` detects the operating system and architecture, downloads the matching asset and
+`SHA256SUMS`, verifies the checksum, and puts the binary in `~/.local/bin`, or in
+`$LANGONROCK_BIN`. `$LANGONROCK_VERSION` pins a tag. On Windows, take the `.exe` from the releases
+page.
+
+A source checkout needs Bun 1.4.2 or newer and a C compiler, or an MSVC developer environment on
+Windows, and builds the adapter with `bun run build:native`. The released binaries embed it and
+need neither.
+
+## Signing
 
 Apple Silicon does not merely warn about unsigned binaries, it refuses to run them. The kernel
 sends SIGKILL before any code executes, so a broken signature looks like a program that produces no
-output and exits 137.
+output and exits 137. That is why the native smoke check verifies the signature on macOS rather
+than trusting it.
 
-Bun 1.3.12 walks straight into this. It writes a truncated `LC_CODE_SIGNATURE` on macOS arm64, so
-every `bun build --compile` output is dead on arrival, and `codesign` rejects the file outright
-with "invalid or unsupported format for signature". Removing the broken signature and re-signing
-ad-hoc is the only fix that holds. `scripts/build.ts` does this automatically on darwin.
+The release binaries carry only the ad-hoc signature `bun build --compile` writes, with no
+Developer ID. That is enough for the kernel to run them, and not enough for Gatekeeper to accept one
+downloaded through a browser. `install.sh` does not go through the browser, which is the reason to
+prefer it over clicking a release asset.
 
-<Callout type="warn" title="The practical lesson">
-  The runtime choice carries platform risk beyond the obvious. This was macOS, the platform assumed
-  to be safe, not Windows.
+Proper signing has a price. A Developer ID with notarization costs 99 USD per year, and a Windows
+code signing certificate, which keeps SmartScreen quiet, a few hundred. Install channels beyond the
+script, a Homebrew tap for macOS and Linux, Scoop or winget for Windows, are not built.
+
+## Where the platforms differ
+
+### Open files on Windows
+
+On POSIX you can delete or replace an open file and readers keep their descriptor. Windows raises a
+sharing violation, so a rename or delete fails if anything holds the file open.
+
+The design keeps that from mattering. Snapshots and every other artifact are immutable and never
+overwritten. The only file ever replaced is `HEAD`, which readers read and close rather than hold
+open. Deleting old files belongs to `gc`, which reports any deletion the operating system refuses
+and can retry it on the next run.
+
+### Directory flushes
+
+POSIX requires a flush of the parent directory after a rename for the rename itself to be durable,
+and the engine does it on macOS and Linux. Windows does not let you open a directory that way. There
+the engine relies on `MoveFileExW` with write-through and on `FlushFileBuffers` instead, and whether
+that holds on Windows filesystems is part of the verification still open.
+
+### Filenames
+
+Windows reserves `CON`, `PRN`, `NUL` and `AUX`, forbids `: * ? < > |`, and caps paths at 260
+characters unless long paths are enabled. macOS is case-insensitive by default, so a bundle holding
+both `Orders.md` and `orders.md` collides.
+
+This would bite hard if concept ids became filenames. They do not. Every artifact the engine writes
+is named by a lowercase fixed-length hex digest, safe on every filesystem, and the id-to-offset
+mapping lives in the snapshot's directory section.
+
+Document paths written over the API are capped at 200 characters, every segment starts with a letter
+or a digit, and a batch that names two paths differing only in case is refused.
+
+### Line endings
+
+The database stores every byte of a document as written, CRLF included, and export gives it back
+the same way. A folder is where line endings change underneath you: Git on Windows converts LF to
+CRLF on checkout, which changes every file's hash, so the next import sees every file as changed.
+Put `* -text` in the folder's `.gitattributes`, or normalize before importing. Pick one and write it
+down.
+
+### Windows paths in a connection string
+
+`new URL()` handles them badly in two different ways, and one of them fails silently. Covered in
+[connection modes](/docs/guides/connection-modes).
+
+CI found that. The local suite never would have, because a temp path on macOS or Linux has no drive
+letter. The parsing tests added alongside the fix use literal Windows strings and therefore run
+everywhere.
+
+### File watching
+
+`fs.watch` with `recursive: true` covers all three platforms with different temperaments. FSEvents
+on macOS coalesces events, `ReadDirectoryChangesW` on Windows overflows its buffer under bursts,
+and inotify on Linux has a watch limit.
+
+Debounce, 200 ms by default, and run a full rescan as a backstop, every 30 seconds by default.
+Never trust watch events alone. An event that arrives without a file name counts as a change rather
+than being dropped.
+
+<Callout type="warn" title="macOS replays recent changes when a recursive watch starts">
+  Files written moments before the watcher existed arrive as fresh events, so the first import after
+  startup is usually spurious. It is harmless here only because an import that finds every file
+  unchanged writes nothing. A watcher that blindly committed on every event would churn on every
+  boot.
 </Callout>
 
-## What proper signing costs
+**Never assert on how many times a watcher fired.** Every platform batches, replays and coalesces
+differently, and a count is an assertion about the operating system rather than about this code.
+Wait on the observable outcome instead, which is what the database contains.
 
-A binary downloaded through a browser hits Gatekeeper on macOS, which blocks it without a Developer
-ID and notarization at 99 USD per year. Windows SmartScreen warns without a code signing
-certificate, a few hundred USD per year.
+Writes inside dot directories are ignored. `.git` and `.obsidian` change constantly, and importing
+on them would never stop.
 
-`brew install` and `curl | sh` bypass macOS quarantine, and `scoop` or `winget` soften it on
-Windows. If the audience is developers, start with those channels and defer signing. For anything
-wider, budget it now.
+### Data directories
 
-The published binaries carry an ad-hoc signature only. That is enough for the kernel to run them,
-and not enough for Gatekeeper to accept one downloaded through a browser. `install.sh` avoids that
-path, which is the reason to prefer it over clicking a release asset.
+```
+Linux    $XDG_DATA_HOME/langonrock   (fallback ~/.local/share/langonrock)
+macOS    ~/Library/Application Support/langonrock
+Windows  %LOCALAPPDATA%\langonrock
+```
 
-Install channels beyond this, a Homebrew tap for macOS and Linux, Scoop or winget for Windows, are
-not built.
+Precedence is `--data`, then `$LANGONROCK_DATA`, then the platform directory. An embedded
+connection string with no path means the same thing, so `okf://?tenant=acme` reads the default
+store.
+
+`platformDataDir` takes the host as an argument instead of reading globals, and pins the separator
+per platform rather than letting `join` follow the host. That makes the Windows and Linux branches
+assertable from a Mac.
+
+Which is the same lesson the Windows connection-string bug taught: **platform logic that can only
+be tested on its platform will not be tested.**
+
+## What CI runs, and what is verified
+
+CI runs on Linux, macOS and Windows for every pull request and every push to `main`. Each runner
+builds the adapter, runs the native smoke check and the test suite, builds the binary, and checks
+that the package installs and builds from source. Static checks run once, on Linux, since they give
+the same answer everywhere, and a suite that hangs fails after 15 minutes instead of holding a
+runner.
+
+Running is not the same as verified. The engine's crash behavior has been tested by killing
+processes at its publication, migration and collection boundaries on macOS arm64. That establishes
+what happens after a process crash on that machine, not after a power loss and not on any other
+filesystem, and network filesystems are not supported at all. The test suite passes in CI on macOS
+and Linux and does not pass on Windows yet. Linux and Windows execution of the engine remains an
+open release requirement, and so does performance acceptance; the [engine
+benchmarks](/docs/architecture/engine-benchmarks) say why.
 
 ## References
 
 - [Bun single-file executables](https://bun.com/docs/bundler/executables)
 - [Bun.mmap API reference](https://bun.com/reference/bun/mmap)
+- [Node-API](https://nodejs.org/api/n-api.html)
+- [Apple fsync and F_FULLFSYNC](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/fsync.2.html)
+- [Windows MoveFileExW](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-movefileexw)

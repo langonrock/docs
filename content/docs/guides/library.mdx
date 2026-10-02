@@ -1,6 +1,6 @@
 ---
 title: Library
-description: open(), the Connection interface, and the Node-compatible client.
+description: open(), the DatabaseConnection it returns, its errors, and the Node-compatible client.
 icon: Code
 ---
 
@@ -13,6 +13,8 @@ const manifest = await knowledge.manifest('sales');
 const hits = await knowledge.search('order grain', { k: 5 });
 const concepts = await knowledge.get(['orders', 'customers'], { section: 'schema' });
 const passage = await knowledge.get(['pride_3'], { find: 'ten thousand a year' });
+
+await knowledge.close();
 ```
 
 `open(dsn)` returns the same interface for every [connection
@@ -28,7 +30,6 @@ interface Connection {
   manifest: (bundle?: string) => Promise<string>;
   get: (ids: string[], options?: GetOptions) => Promise<Map<string, ConceptSlice>>;
   search: (query: string, options?: SearchOptions) => Promise<string>;
-  graph: () => Promise<Graph>;
   listSource: () => Promise<SourceEntry[]>;
   readSource: (bundle: string, path: string) => Promise<SourceFile | undefined>;
   writeSource: (bundle: string, path: string, content: string, replaces?: string) => Promise<string>;
@@ -37,13 +38,19 @@ interface Connection {
   sync: () => Promise<SyncResult>;
   close: () => Promise<void>;
 }
+
+interface DatabaseConnection extends Connection {
+  transact: (request: TransactionRequest) => Promise<RevisionResult>;
+  history: (options?: HistoryOptions) => Promise<RevisionPage>;
+  restore: (request: RestoreRequest) => Promise<RevisionResult>;
+}
 ```
 
-`manifest` and `search` return TSV as a string, because that is what goes into a prompt. `get`
-returns a `Map` of slices keyed by id, with missing ids simply absent. Every read is a slice, even
-a whole-document one, so a caller always knows how much text exists beyond what it received; the
-library never truncates unless asked, and the 15,000-character default cap lives at the MCP
-boundary only.
+`open()` and `connect()` both return a `DatabaseConnection`. `manifest` and `search` return TSV as a
+string, because that is what goes into a prompt. `get` returns a `Map` of slices keyed by id, with
+missing ids simply absent. Every read is a slice, even a whole-document one, so a caller always
+knows how much text exists beyond what it received; the library never truncates unless asked, and
+the 15,000-character default cap lives at the MCP boundary only.
 
 ```ts
 interface GetOptions {
@@ -79,27 +86,6 @@ interface SearchOptions {
   expand?: boolean; // one-hop link expansion, default true
   bundle?: string;  // rank and expand within one bundle
 }
-```
-
-There is no option for the anchor. A query that names a concept by id or exact title anchors on it
-and the result says so on an `# anchors:` line; a query that names nothing ranks exactly as it did.
-
-```ts
-interface Graph {
-  nodes: { id: string; bundle: string; out: string[]; in: string[]; cluster: number }[];
-  edges: { from: string; to: string; via: string }[]; // via is the section the link sits in
-  summary: {
-    concepts: number;
-    edges: number;
-    density: number;
-    types: Record<string, number>;
-    orphans: string[];                        // nothing links to these
-    dangling: { from: string; target: string }[]; // links to concepts not yet written
-    hubs: { id: string; in: number; out: number }[];
-    components: { count: number; largest: number };
-    clusters: { count: number; largest: number; modularity: number };
-  };
-}
 
 interface SourceEntry {
   bundle: string;
@@ -117,14 +103,142 @@ interface SyncResult {
 }
 ```
 
+On a native tenant `writeSource`, `deleteSource` and `deleteBundle` each commit one revision before
+they return, and `sync()` reports the current commit without creating another. [Editing over the
+network](/docs/guides/editing) covers the preconditions they take.
+
+## Transactions and history
+
+```ts
+type DocumentChange =
+  | { operation: 'write'; bundle: string; path: string; content: string; replaces?: string }
+  | { operation: 'delete'; bundle: string; path: string; replaces: string };
+
+interface TransactionRequest {
+  changes: DocumentChange[]; // 1 to 1,000, at most 16 MiB of source text
+  expectedRevision?: string;
+}
+
+interface RevisionResult extends SyncResult {
+  revision: string;
+}
+```
+
+```ts
+const first = await knowledge.transact({
+  changes: [
+    {
+      operation: 'write',
+      bundle: 'notes',
+      path: 'intro.md',
+      content: '---\ntype: concept\n---\n# Introduction\nSaved atomically.\n',
+    },
+  ],
+});
+
+const previous = await knowledge.readSource('notes', 'intro.md');
+
+if (previous !== undefined) {
+  await knowledge.transact({
+    expectedRevision: first.revision,
+    changes: [
+      {
+        operation: 'write',
+        bundle: 'notes',
+        path: 'intro.md',
+        replaces: previous.hash,
+        content: `${previous.content}\nUpdated.\n`,
+      },
+      { operation: 'write', bundle: 'notes', path: 'second.md', content: '# Second document\n' },
+    ],
+  });
+}
+```
+
+All changes in a batch become visible together, and a batch whose preconditions do not all hold
+publishes nothing. Omitting `replaces` asserts creation; `expectedRevision` additionally asserts
+that nobody committed anything to the tenant since. [Transactions](/docs/database/transactions)
+covers the rules.
+
+```ts
+interface RevisionInfo {
+  revision: string;
+  parent: string | null;
+  snapshot: string;
+  created: string;
+  concepts: number;
+  bundles: string[];
+}
+
+interface HistoryOptions {
+  before?: string; // the `next` cursor of the previous page
+  limit?: number;  // 1 to 100, default 20
+}
+
+interface RevisionPage {
+  revisions: RevisionInfo[]; // newest first
+  next?: string;
+}
+
+interface RestoreRequest {
+  revision: string;
+  expectedRevision: string;
+}
+```
+
+`restore()` publishes the chosen revision's complete source state as a new commit, guarded by the
+revision you expect to be current, and rewrites nothing. [History and
+restore](/docs/database/history) covers paging and retention.
+
+## Errors
+
+Switch on `code`, never on the message.
+
+| `code`                 | Thrown when                                           | What to do                                          |
+| ---------------------- | ----------------------------------------------------- | --------------------------------------------------- |
+| `CONFLICT`             | A precondition or `expectedRevision` no longer holds  | Re-read the hashes or the revision, then decide     |
+| `LEGACY_TENANT`        | The tenant has not been [migrated](/docs/database/migration) | Migrate it before using transactions or history |
+| `INDETERMINATE_COMMIT` | The commit failed after the point it may be durable   | Read `history`; the error carries `revision`        |
+
+Embedded, these are classes: `ConflictError` and `IndeterminateCommitError` are exported, and both
+carry `code`. Remote, every failure is a plain `Error` whose message begins
+`langonrock server returned <status>:` followed by the server's body; when that body is JSON,
+`code` and `revision` are copied onto the error. A stale `writeSource` over the network is a 412
+with a plain-text body, so its error has no `code` and only the message tells you what happened.
+
+## Closing
+
+On an embedded connection, `close()` releases every reader the connection cached, and any call
+after it throws `database connection is closed`. A remote connection holds no readers, so its
+`close()` does nothing, but calling it costs nothing either.
+
+A reader you open directly with `openTenant()` owns a file descriptor. Close it in a `finally`:
+
+```ts
+import { openTenant } from 'langonrock';
+
+const reader = await openTenant('/var/data', 'acme');
+
+try {
+  await reader.get(['orders'], { section: 'schema' });
+} finally {
+  reader.close?.();
+}
+```
+
+A reader pins one revision. It takes the tenant's retention lock briefly while it opens that
+revision's snapshot, then keeps the file open, so a concurrent commit or collection never changes
+what it reads underneath it.
+
 ## From an app that is not on Bun
 
 The package above needs Bun. The store uses `Bun.file`, `Bun.Glob`, `Bun.YAML` and zstd, none of
-which exist on Node. A desktop editor usually cannot import it, since Electron's main process is
-Node and Tauri's front end is a webview.
+which exist on Node, and it loads a compiled native adapter for locks and durable writes. A desktop
+editor usually cannot import it, since Electron's main process is Node and Tauri's front end is a
+webview.
 
-`langonrock/client` is the same `Connection` over the network only, with nothing under it but
-`fetch`:
+`langonrock/client` is the same `DatabaseConnection` over the network only, with nothing under it
+but `fetch`:
 
 ```ts
 import { connect } from 'langonrock/client';
@@ -133,12 +247,12 @@ const knowledge = connect('okf+http://127.0.0.1:7777?token=...');
 const before = await knowledge.readSource('sales', 'tables/orders.md');
 
 await knowledge.writeSource('sales', 'tables/orders.md', edited, before?.hash);
-await knowledge.sync();
 ```
 
 It runs on Node, Deno, Electron, Tauri and the browser, and a test asserts that rather than
 trusting it. The test bundles the entry point for Node and fails on any `Bun.` reference or
-filesystem import.
+filesystem import. Installing the package does not build the native adapter, so an app that only
+imports `langonrock/client` needs neither Bun nor a C compiler.
 
 A `okf+unix:` string works from this client too, through `fetch`'s `unix` option. That is a Bun and
 Node extension, and a browser ignores it, which is correct since a browser has no socket to reach
@@ -153,11 +267,11 @@ since it has no filesystem to open.
   token. Nothing at the call site changes.
 </Callout>
 
-[langoneditor](https://github.com/langonrock/editor) is that shape in production. It is a Tauri app
-on React and CodeMirror, so its front end is a webview and it cannot import the store. It ships the
-`langonrock` binary as a sidecar, spawns `langonrock serve` on loopback with a freshly generated
-token when you open a local folder, and points the same client at a remote host with a bearer token
-otherwise. Tokens go to the system keychain when one is available.
+[langoneditor](https://github.com/langonrock/editor) is that shape in production. It is a Tauri
+app, so its front end is a webview and it cannot import the store. It ships the `langonrock`
+binary as a sidecar, spawns `langonrock serve` on loopback with a freshly generated token when you
+open a local folder, and points the same client at a remote host with a bearer token otherwise.
+Tokens go to the system keychain when one is available.
 
 Its own rule is worth copying: the editor derives no ids, resolves no links and reproduces no lint
 rules. It asks the server and shows the answer, so the two cannot drift apart.
@@ -169,7 +283,8 @@ rules. It asks the server and shows the answer, so the two cannot drift apart.
 
 ## The pieces, if you want them instead
 
-The compiler, store, reader, watcher and search are all exported.
+The compiler, the database operations, the reader, the watcher and search are all exported. The
+database operations take a target, `{ root, tenant }`, rather than a connection.
 
 ```ts
 import {
@@ -178,8 +293,15 @@ import {
   discoverBundles,
   splitSections,
   openTenant,
-  putBundle,
-  putTenant,
+  transact,
+  history,
+  restore,
+  importFolder,
+  importFolders,
+  exportFolder,
+  migrate,
+  verify,
+  repair,
   putTenantRoot,
   watchTenant,
   buildTenantIndex,
@@ -190,24 +312,28 @@ import {
 } from 'langonrock';
 ```
 
-| Export             | What it gives you                                              |
-| ------------------ | -------------------------------------------------------------- |
-| `compileBundle`    | One directory to `{ concepts, diagnostics, tsv, bodies }`       |
-| `compileTenant`    | Several bundles merged, with ids and links rewritten            |
-| `discoverBundles`  | The immediate subdirectories of a source root                   |
-| `splitSections`    | Heading byte ranges for one body                                |
-| `openTenant`       | A reader over the current snapshot                              |
-| `putTenantRoot`    | Compile every subdirectory of a source root and write a snapshot |
-| `putTenant`        | The same, from an explicit list of `{ name, dir }` bundles      |
-| `putBundle`        | Store one directory as a single bundle                          |
-| `watchTenant`      | A watcher with `ready`, `sync()` and `close()`                  |
-| `buildTenantIndex` | A BM25 index over a reader                                      |
-| `serve`            | The HTTP server, given PEM strings rather than paths            |
-| `collect`          | Snapshot collection for one tenant                              |
+| Export                         | What it gives you                                                     |
+| ------------------------------ | --------------------------------------------------------------------- |
+| `compileBundle`                | One directory to `{ concepts, diagnostics, tsv, bodies }`, no store    |
+| `compileTenant`                | Several bundles merged, with ids and links rewritten                   |
+| `discoverBundles`              | The immediate subdirectories of a source root                          |
+| `splitSections`                | Heading byte ranges for one body                                       |
+| `openTenant`                   | A reader pinned to the current revision                                |
+| `transact`, `history`, `restore` | The connection's database verbs, on a target                         |
+| `importFolder`, `importFolders` | Tracked import of one or several folders, with conflict detection     |
+| `exportFolder`                 | The current revision's exact Markdown, written to a new directory      |
+| `migrate`                      | Move a folder-store tenant into the database, with a dry run           |
+| `verify`, `repair`             | Check stored data independently of caches; select a verified root      |
+| `putTenantRoot`                | Import every subdirectory of a source root, as `sync <dir>` does       |
+| `watchTenant`                  | A watcher with `ready`, `sync()` and `close()`                         |
+| `buildTenantIndex`             | A BM25 index over a reader                                             |
+| `serve`                        | The HTTP server, given PEM strings rather than paths                   |
+| `collect`, `collectAll`        | Retention collection for one tenant, or every tenant under a root      |
 
 Lower-level pieces are exported too: `parseFrontmatter`, `deriveIds`, `resolveLinks`, `scanBundle`,
 `parseHeader`, `parseDir`, `encodeTnt`, `estimateTokens`, `platformDataDir`, `resolveDataDir`,
-`loadTokens`, `addToken`, `generateToken`, `loadSources`, `assertTenantId`.
+`loadTokens`, `addToken`, `generateToken`, `loadSources`, `assertTenantId`, `createReaderCache`,
+`createSearchCache`. The two cache factories expose `close()` as well.
 
 ## Compiling without a store
 
@@ -221,21 +347,5 @@ const { tsv, concepts, diagnostics, bodies } = await compileBundle('sources/acme
 ```
 
 That is the cheapest useful version of the whole idea. Generate the manifest over your existing
-OKF, put it in the prompt prefix, and you have captured most of the token saving before building
-anything else.
-
-## Reading a snapshot directly
-
-```ts
-import { openTenant } from 'langonrock';
-
-const reader = await openTenant('./data', 'acme');
-
-reader.snapshot; // the digest
-reader.ids; // every concept id
-await reader.manifest('sales'); // one contiguous slice, no parsing
-await reader.get(['orders'], { section: 'schema' });
-```
-
-Readers take no lock, ever. Snapshots are immutable, so a reader either sees the old one or the new
-one, never a partial write.
+OKF, put it in the prompt prefix, and you have captured most of the token saving before storing
+anything.

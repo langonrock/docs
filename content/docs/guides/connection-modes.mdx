@@ -28,8 +28,15 @@ okf://?tenant=acme                     the platform data directory
 An embedded connection string with no path means the default store, exactly as an absent `--data`
 does. The `tenant` parameter is required, since one store holds many tenants.
 
-Each embedded connection caches readers and search indexes per tenant, so repeated calls in one
-process do not reopen the snapshot.
+<Callout type="warn" title="The path must be absolute">
+  The first segment after `//` is parsed as a host, so `okf://./data` opens `/data` and
+  `okf://data` silently opens the platform data directory. Neither complains. Write
+  `okf:///abs/path` with three slashes, or build the string from an absolute path, as
+  `okf://$PWD/data` does.
+</Callout>
+
+Each embedded connection caches readers and search indexes for the tenants it has used, so repeated
+calls in one process do not reopen the snapshot. `close()` releases them.
 
 ## Local daemon
 
@@ -123,3 +130,4 @@ okf+http://127.0.0.1:7777?token=...
 | `npipe transport is unavailable`               | `okf+npipe:`, with the loopback TCP fallback spelled out   |
 | `this client speaks HTTP only`                 | `okf://` passed to `langonrock/client`, which has no filesystem |
 | `invalid tenant id "..."`                      | Outside `[a-z0-9_-]`, or longer than 64 characters         |
+| `database connection is closed`                | A call on an embedded connection after `close()`           |

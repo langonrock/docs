@@ -68,14 +68,29 @@ GET /v1/acme/manifest       same, and the path must agree with the token
 
 A token pointed at another tenant gets 403, not a silent read of the wrong data.
 
-| Status | Cause                                              |
-| ------ | -------------------------------------------------- |
-| 401    | Missing or unknown bearer token                    |
-| 403    | The path names a tenant the token does not grant   |
-| 403    | A write attempted with a read-only token           |
+| Status | Cause                                                  |
+| ------ | ------------------------------------------------------ |
+| 401    | Missing or unknown bearer token                        |
+| 401    | No tokens configured and no tenant named in the path   |
+| 403    | The path names a tenant the token does not grant       |
+| 403    | A change attempted with a read-only token              |
 
 With no tokens at all, the server is on a unix socket, so the path must name the tenant and that
 caller may write.
+
+## What a write token adds
+
+| Route                                                    | Read-only token | Write token |
+| -------------------------------------------------------- | --------------- | ----------- |
+| `manifest`, `snapshot`, `get`, `search`                  | yes             | yes         |
+| `GET source`, `GET source/{bundle}/{path}`, `history`    | yes             | yes         |
+| `PUT` and `DELETE` on a document, `DELETE bundles/{bundle}` | 403          | yes         |
+| `transact`, `restore`                                    | 403             | yes         |
+| `sync`                                                   | 403             | yes         |
+
+`sync` changes nothing on a native tenant, where it only reports the current commit, and it still
+asks for a write token, because on a tenant that has not been migrated it recompiles the source
+folder.
 
 ## TLS
 
@@ -117,15 +132,20 @@ it in front. What the server will not do is put your token on the wire in the cl
 
 ## Limits on writes
 
-| Limit               | Value       | What happens past it                          |
-| ------------------- | ----------- | --------------------------------------------- |
-| Concept size        | 1,000,000 B | 413, after the body is read and dropped       |
-| Request body        | 8,000,000 B | Refused by the transport                      |
-| Concept path        | 200 chars   | Rejected, since Windows caps a path at 260    |
+| Limit                      | Value                 | What happens past it                       |
+| -------------------------- | --------------------- | ------------------------------------------ |
+| One document over `PUT`    | 1,000,000 bytes       | 413, after the body is read and dropped    |
+| Changes in one `transact`  | 1 to 1,000            | 400                                        |
+| Source text in one `transact` | 16 MiB             | 400                                        |
+| Request body               | 17 MiB, JSON included | Refused by the transport                   |
+| Document path              | 200 characters        | 400, since Windows caps a path at 260      |
 
 The size check runs after reading the body rather than from `content-length` before it. Answering
 while the body is still arriving leaves those bytes on a keep-alive connection, where the next
 request reads them as its own headers and hangs instead of being told what went wrong.
+
+Content must be valid UTF-8 and well-formed Unicode. Anything else is refused with a 400 before
+anything is published, rather than silently repaired while decoding.
 
 ## Path validation
 

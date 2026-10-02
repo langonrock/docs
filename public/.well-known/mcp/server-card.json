@@ -3,7 +3,7 @@
   "name": "com.langonrock/langonrock",
   "title": "Lang on Rock",
   "version": "0.2.0",
-  "description": "Six tools over a compiled OKF knowledge store, four to read and two to write, served over stdio.",
+  "description": "A document database for agent knowledge, served over stdio: six tools by default, four to read and two that commit, plus transact, history and restore with --database-tools.",
   "websiteUrl": "https://langonrock.com",
   "repository": {
     "source": "github",

@@ -1,14 +1,15 @@
 ---
 name: langonrock
-description: Read and write an Open Knowledge Format store through langonrock's six MCP tools. Use when an agent needs to answer questions from a compiled knowledge base without crawling raw Markdown, or when setting up langonrock as an MCP server for Claude Code or Cursor.
+description: Read and write a langonrock document database through its MCP tools, six by default and three more for transactions, history and restore with --database-tools. Use when an agent needs to answer questions from a knowledge base without crawling raw Markdown, to persist what it learned without overwriting anyone else's edit, or when setting up langonrock as an MCP server for Claude Code or Cursor.
 license: MIT
 ---
 
-# Reading and writing a langonrock store
+# Reading and writing a langonrock database
 
-langonrock compiles a folder of Open Knowledge Format bundles into a read model an agent queries by
-id. The point is token cost: read a dense manifest once, then fetch only the sections you need,
-rather than crawling Markdown files until the answer appears.
+langonrock is a document database for Markdown. It stores documents in its own engine, commits
+changes atomically, keeps a history of revisions, and compiles every commit into a read model an
+agent queries by id. The point is token cost: read a dense manifest once, then fetch only the
+sections you need, rather than crawling Markdown files until the answer appears.
 
 ## Connect
 
@@ -26,7 +27,8 @@ The connection string picks the backend, and the tool surface is identical acros
 | `okf+https:` | the same over TLS                                    |
 
 Point it at a daemon rather than a path when several agent sessions share one machine — every
-invocation then reuses one process instead of paying cold start.
+invocation then reuses one process instead of paying cold start. Append `--database-tools` to the
+registered command to expose the three database tools described below.
 
 ## The six tools
 
@@ -36,8 +38,8 @@ invocation then reuses one process instead of paying cold start.
 | `search`   | `query`, `k?`, `bundle?`                          | Ranked manifest rows and a `pos` cell              |
 | `get`      | `ids[]`, `section?`, `offset?`, `limit?`, `find?` | Framed slices, one `@@ id` block each              |
 | `snapshot` | none                                              | The current digest                                 |
-| `write`    | `bundle`, `path`, `content`, `replaces?`          | The new digest, plus that file's compiler warnings |
-| `delete`   | `bundle`, `path`, `replaces?`                     | The new digest                                     |
+| `write`    | `bundle`, `path`, `content`, `replaces?`          | The commit's snapshot, plus that file's warnings   |
+| `delete`   | `bundle`, `path`, `replaces?`                     | The commit's snapshot                              |
 
 `search` never returns bodies. `k` is capped at 50. `get` needs at least one id and reports ids it
 could not resolve as a trailing `@@ missing` block instead of failing the call.
@@ -79,9 +81,8 @@ a concept past its `stale_after` date at read time. Say so when you answer from 
 
 ## Writing
 
-`write` creates or replaces one concept and `delete` removes one. Both change the source Markdown
-and recompile before answering, so the change is visible to `manifest`, `search` and `get` on your
-next call. Send the whole document in `content`, not a patch, with frontmatter carrying at least a
+`write` creates or replaces one concept and `delete` removes one. Each commits a revision of its own
+before answering, so the change is visible to `manifest`, `search` and `get` on your next call. Send the whole document in `content`, not a patch, with frontmatter carrying at least a
 `type`.
 
 Replacing needs `replaces`, the hash of the version being replaced. You are not expected to know it:
@@ -94,6 +95,29 @@ exist creates the bundle, so persisting a first note needs no setup.
 Ids are the shortest unambiguous form of their path, so adding a file can rename a concept nobody
 edited. Re-read the manifest after writing instead of reusing ids you saw before.
 
+## Database tools (opt-in)
+
+With `--database-tools` the server adds three more tools. They cost tokens in every session, which
+is why they are off by default.
+
+| Tool       | Input                                                          | Output                                      |
+| ---------- | -------------------------------------------------------------- | ------------------------------------------- |
+| `transact` | `changes` (1 to 1,000 writes and deletes), `expectedRevision?` | The new revision and snapshot, as JSON      |
+| `history`  | `before?`, `limit?` (1 to 100)                                 | Revisions newest first, and a `next` cursor |
+| `restore`  | `revision`, `expectedRevision`                                 | The new revision and snapshot, as JSON      |
+
+Use `transact` when several documents must change together. A change is
+`{operation: "write", bundle, path, content, replaces?}` or
+`{operation: "delete", bundle, path, replaces}`, where `replaces` is the 64-character source hash.
+No change commits if any precondition fails, so a batch either lands whole or not at all.
+
+To undo, read `history`, pick the revision to return to, and call `restore` with the current
+revision as `expectedRevision`; the first entry of `history` is the current one. Restore publishes
+the old state as a new revision and rewrites nothing.
+
+If an error says the commit outcome is indeterminate, the change may already be committed. Read
+`history` before retrying, and never retry blindly.
+
 ## Checking for staleness
 
 `snapshot` returns the current digest. Compare it against the digest you saw earlier to know whether
@@ -103,4 +127,5 @@ anything you already read has been invalidated; identical digests mean identical
 
 - Documentation: https://langonrock.com/docs
 - MCP server guide: https://langonrock.com/docs/guides/mcp
+- Transactions: https://langonrock.com/docs/database/transactions
 - Source: https://github.com/langonrock/langonrock

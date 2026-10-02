@@ -1,6 +1,6 @@
 ---
 title: Quickstart
-description: Compile a folder of bundles, read the manifest, fetch one section.
+description: Import a folder of bundles, read it back, commit a change, and restore the revision before it.
 icon: Zap
 ---
 
@@ -9,9 +9,9 @@ import { Step, Steps } from 'fumadocs-ui/components/steps';
 <Steps>
 <Step>
 
-### Lay out the source
+### Lay out a folder of bundles
 
-Point langonrock at a folder where every immediate subdirectory is one bundle.
+Start from a folder where every immediate subdirectory is one bundle.
 
 ```
 sources/acme/
@@ -22,27 +22,53 @@ sources/acme/
     runbooks/deploy.md
 ```
 
-`sales` and `ops` are bundles. `orders`, `customers` and `deploy` are concepts. Frontmatter is
-optional: a plain Markdown file still compiles, with its id from the path, its summary from the
-first sentence, and its title from the first heading — it just earns a conformance warning, which
-`--strict` turns into a failing exit. Only navigation files, `index.md` and `log.md`, never become
-concepts.
+`sales` and `ops` are bundles. `orders`, `customers` and `deploy` will be concepts. Each file is
+ordinary Markdown with YAML frontmatter:
+
+```md title="sources/acme/sales/tables/orders.md"
+---
+type: BigQuery Table
+title: Orders
+description: One row per completed customer order.
+grain: order_id
+---
+
+# Schema
+
+| Column        | Type      | Notes                             |
+| ------------- | --------- | --------------------------------- |
+| `order_id`    | STRING    | Primary key.                      |
+| `customer_id` | STRING    | Joins to [customers](./customers.md). |
+| `total`       | NUMERIC   | Order total in the store currency. |
+| `placed_at`   | TIMESTAMP | When checkout completed, UTC.     |
+
+# Joins
+
+Join to [customers](./customers.md) on `customer_id`.
+```
+
+Frontmatter is optional: a plain Markdown file still compiles, with its id from the path, its
+summary from the first sentence and its title from the first heading. It earns a conformance
+warning, which `--strict` turns into a failing exit. Only navigation files, `index.md` and `log.md`,
+never become concepts.
 
 </Step>
 <Step>
 
-### Compile it into the store
+### Import it
 
 ```sh
-langonrock sync sources/acme --data ./data --tenant acme
+langonrock import sources/acme --data ./data --tenant acme
 ```
 
 ```
-snapshot eaf251169a59 (new), 2 bundles [ops sales], 3 concepts, 850 bytes on disk
+snapshot cd9078b9af0b (new), 2 bundles [ops sales], 3 concepts, 1236 bytes on disk
 ```
 
-That is the whole write path. `sync` reads every subdirectory as a bundle and writes one snapshot
-for the tenant.
+That is the first commit of the tenant `acme`. Import reads every subdirectory as a bundle,
+compiles the documents into a snapshot and stores the exact Markdown beside it. The folder is
+interchange, not storage: nothing ever writes back to it, and import remembers what it read, so
+running it again on an unchanged folder changes nothing and says `(reused)`.
 
 </Step>
 <Step>
@@ -62,11 +88,10 @@ customers	sales	bigquery_table	deprecated	customer_id	Registered customers, incl
 orders	sales	bigquery_table	-	order_id	One row per completed customer order.	customers
 ```
 
-Everything an agent needs to plan its reads is in those rows. The `links` column carries the graph,
-so it knows every id it will need before it fetches anything. A `status` cell other than `-` is the
-concept telling you it is not current — `deprecated`, `draft`, or `stale` once its `stale_after`
-date passes, which the reader computes at read time so the snapshot itself never depends on the
-clock.
+Everything an agent needs to plan its reads is in those rows. The `links` column tells it which
+concepts belong together before it fetches anything. A `status` cell other than `-` is the concept
+saying it is not current: `deprecated`, `draft`, or `stale` once its `stale_after` date passes,
+which the reader computes at read time so the stored bytes never depend on the clock.
 
 </Step>
 <Step>
@@ -77,32 +102,166 @@ clock.
 langonrock get orders --section schema --data ./data --tenant acme
 ```
 
+```
+@@ orders
+# Schema
+
+| Column        | Type      | Notes                             |
+| ------------- | --------- | --------------------------------- |
+| `order_id`    | STRING    | Primary key.                      |
+| `customer_id` | STRING    | Joins to [customers](./customers.md). |
+| `total`       | NUMERIC   | Order total in the store currency. |
+| `placed_at`   | TIMESTAMP | When checkout completed, UTC.     |
+```
+
 Section names come from the concept's own Markdown headings, lowercased with non-alphanumerics
-collapsed to underscores. A `# Common query patterns` heading becomes
+collapsed to underscores, so a `# Common query patterns` heading becomes
 `--section common_query_patterns`. Text before the first heading is the `body` section.
 
 Drop `--section` for the whole concept, and pass several ids to fetch them in one call. When you
 know a phrase rather than a section, `--find "exact words"` returns the window around it plus the
-offset of every occurrence — the cheap way into a long document with no headings.
+offset of every occurrence.
+
+</Step>
+<Step>
+
+### Commit a change
+
+A transaction is a JSON batch of document writes and deletes. This one adds a metric:
+
+```json title="batch.json"
+{
+  "changes": [
+    {
+      "operation": "write",
+      "bundle": "sales",
+      "path": "metrics/revenue.md",
+      "content": "---\ntype: Metric\ntitle: Revenue\ndescription: Sum of order totals per day.\n---\n\n# Definition\n\n`SUM(total)` over [orders](../tables/orders.md), grouped by `DATE(placed_at)`.\n"
+    }
+  ]
+}
+```
+
+```sh
+langonrock transact --data ./data --tenant acme --from batch.json | jq
+```
+
+```json
+{
+  "revision": "0d07a9f035a9416201367d342e146b379021a43cc9234b699c7c559e4ee7b808",
+  "snapshot": "0203add32834701b39b60d1b330ad88349a42c93e52bf29d0a660961372098ff",
+  "concepts": 4,
+  "bundles": [
+    "ops",
+    "sales"
+  ],
+  "diagnostics": []
+}
+```
+
+The change carries no `replaces`, which asserts that the document is new. Run the same batch again
+and it is refused, with nothing published:
+
+```
+concept already exists: re-read the concept and retry with its new hash
+```
+
+To change or delete an existing document, a change names the hash of the version it replaces. The
+next manifest already has the new row:
+
+```
+revenue	sales	metric	-	-	Sum of order totals per day.	orders
+```
+
+</Step>
+<Step>
+
+### Take it back
+
+Every commit is a revision. History lists them newest first:
+
+```sh
+langonrock history --data ./data --tenant acme | jq
+```
+
+```json
+{
+  "revisions": [
+    {
+      "revision": "0d07a9f035a9416201367d342e146b379021a43cc9234b699c7c559e4ee7b808",
+      "parent": "e9c762984ea34398083fa766b787af4d307673612eead03416a3a80dec46112f",
+      "snapshot": "0203add32834701b39b60d1b330ad88349a42c93e52bf29d0a660961372098ff",
+      "created": "2026-10-01T02:42:30.592Z",
+      "concepts": 4,
+      "bundles": [
+        "ops",
+        "sales"
+      ]
+    },
+    {
+      "revision": "e9c762984ea34398083fa766b787af4d307673612eead03416a3a80dec46112f",
+      "parent": null,
+      "snapshot": "cd9078b9af0b1d912a9e6e0c8c12d409be3aac3394085d56dc618458b5e23ad8",
+      "created": "2026-10-01T02:42:30.513Z",
+      "concepts": 3,
+      "bundles": [
+        "ops",
+        "sales"
+      ]
+    }
+  ]
+}
+```
+
+Restore the import, naming the revision you expect to be current:
+
+```sh
+FIRST=$(langonrock history --data ./data --tenant acme | jq -r '.revisions[-1].revision')
+CURRENT=$(langonrock history --data ./data --tenant acme | jq -r '.revisions[0].revision')
+langonrock restore "$FIRST" --expected-revision "$CURRENT" --data ./data --tenant acme | jq
+```
+
+```json
+{
+  "revision": "43e751dc1a93148c61e8c35ff3134b942442513340ab9b1f841cc1d4c5bc743e",
+  "snapshot": "cd9078b9af0b1d912a9e6e0c8c12d409be3aac3394085d56dc618458b5e23ad8",
+  "concepts": 3,
+  "bundles": [
+    "ops",
+    "sales"
+  ],
+  "diagnostics": []
+}
+```
+
+Restore publishes the old source as a new commit, so the history keeps all three revisions. The
+snapshot is the one the import produced, byte for byte, because identical documents compile to
+identical bytes; the revision is new, because a revision identifies a commit. Had anyone committed
+in between, the restore would have been refused with
+`database changed: re-read the revision and document hashes`.
 
 </Step>
 </Steps>
 
-## Keep it following your edits
+## Keep it following a folder
 
-Syncing by hand gets old. Run the watcher instead:
+Importing by hand gets old. Run the watcher instead:
 
 ```sh
 langonrock watch sources/acme --data ./data --tenant acme
 ```
 
-Add a bundle by creating a folder, remove one by deleting the folder, change one by saving a file.
-The watcher debounces filesystem events at 200 ms and runs a full rescan every 30 seconds as a
-backstop, because watch events are a hint on every platform and never the source of truth.
+Add a bundle by creating a folder, change a document by saving its file, remove one by deleting
+it. The watcher debounces filesystem events at 200 ms, ignores dot directories such as `.git`, and
+rescans the whole folder every 30 seconds as a backstop, because watch events are a hint on every
+platform. A document edited in the database since the last import is never overwritten by the
+folder: if both sides changed, the import fails as a whole and the watcher reports the conflict.
+Documents created in the database stay where they are.
 
-If you are going to run the daemon anyway, skip this command. [`serve` starts the same
-watcher itself](/docs/guides/running-a-server), and running both would put two watchers on one
-tenant.
+If you are going to run the daemon anyway, skip this command. [`serve` watches the folders listed
+in `sources.json` itself](/docs/guides/running-a-server), and running both would put two watchers on
+one tenant. More on imports, conflicts and exact export in [Import, watch and
+export](/docs/database/folders).
 
 ## Hand it to an agent
 
@@ -116,21 +275,32 @@ For Claude Code, register it once:
 claude mcp add langonrock -- langonrock mcp "okf:///abs/path/to/data?tenant=acme"
 ```
 
-Six tools, no more: `manifest`, `search`, `get` and `snapshot` to read, `write` and `delete` to
-change. See [MCP server](/docs/guides/mcp) for what each one is for and why the count is capped.
+Six tools by default: `manifest`, `search`, `get` and `snapshot` to read, `write` and `delete` to
+commit one document at a time. `--database-tools` adds `transact`, `history` and `restore`. See
+[MCP server](/docs/guides/mcp) for what each one is for and why the count is capped.
 
 ## Searching instead of reading everything
 
 ```sh
-langonrock query "okf:///abs/path/to/data?tenant=acme" search orders
+langonrock query "okf:///abs/path/to/data?tenant=acme" search order total
 ```
 
-Search returns manifest rows, never bodies, so the two-hop path holds. Narrow with `search`, then
-fetch the ids you chose with `get`. Results include concepts one link away from the top matches,
-which is usually where the join partner or the parent dataset lives. Each direct hit also ends in a
-`pos` column — the offset where your query's words cluster densest in the body — so the second hop
-can be `get` with `--offset <pos> --limit 2000` instead of the whole document, even when there is
-no literal phrase for `--find` to anchor on.
+```
+# tenant: acme
+# bundles: ops sales
+# query: order total
+# hits: 1 direct, 1 linked
+id	bundle	kind	status	grain	summary	links	pos
+orders	sales	bigquery_table	-	order_id	One row per completed customer order.	customers	0
+customers	sales	bigquery_table	deprecated	customer_id	Registered customers, including churned.	-	-
+```
+
+Search returns manifest rows, never bodies. Narrow with `search`, then fetch the ids you chose with
+`get`. Results include concepts one link away from the top matches, which is usually where the join
+partner or the parent dataset lives; that is the `linked` count. Each direct hit also ends in a
+`pos` column, the offset where your query's words cluster densest in the body, so the second hop can
+be `get` with `--offset <pos> --limit 2000` instead of the whole document. Linked rows, and hits
+whose words appear only in the manifest row, show `-`.
 
 <Callout title="Progress goes to stderr">
   Stdout stays clean for piping, and Bun paints anything written with `console.error` red. Those

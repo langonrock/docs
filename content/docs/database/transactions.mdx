@@ -1,0 +1,243 @@
+---
+title: Transactions
+description: Commit related changes together, name the version each one replaces, and know what a concurrent writer sees.
+icon: GitCommitHorizontal
+---
+
+Every write to a tenant the engine owns is a commit. A transaction is a batch of document changes
+that become visible together or not at all: one new revision, one compiled read model, one durable
+publication. Manifest, `get` and `search` see the whole batch from the moment the call returns, and
+never half of it.
+
+## A batch
+
+```json
+{
+  "expectedRevision": "984e1dcb03ea2403acd84528949187909ef0e327504f03d92e00b199ba9dc9c9",
+  "changes": [
+    {
+      "operation": "write",
+      "bundle": "sales",
+      "path": "metrics/revenue.md",
+      "content": "---\ntype: Metric\ntitle: Revenue\n---\n\n# Definition\n…"
+    },
+    {
+      "operation": "write",
+      "bundle": "sales",
+      "path": "tables/orders.md",
+      "content": "…",
+      "replaces": "3b3807a007b08a92991718ba790e3ff312793710a8d9ea141c7f19633deb5750"
+    },
+    {
+      "operation": "delete",
+      "bundle": "sales",
+      "path": "tables/legacy_orders.md",
+      "replaces": "…"
+    }
+  ]
+}
+```
+
+| Rule              | Limit                                                                  |
+| ----------------- | ---------------------------------------------------------------------- |
+| Changes per batch | 1 to 1,000                                                             |
+| Source text       | 16 MiB across every `write` in the batch                               |
+| Targets           | each `bundle/path` at most once, compared case-insensitively           |
+| Paths             | relative `.md`, forward slashes, at most 200 characters                |
+| Text              | valid UTF-8 and well-formed Unicode, rejected before anything is written |
+| Tenant            | the connected one; a `tenant` field in the batch or a change is refused |
+
+A change names its document by bundle and path, the same pair the source listing uses. Writing the
+first document into a bundle creates the bundle, and the first commit into a tenant that does not
+exist yet creates the tenant.
+
+## Every change names the version it replaces
+
+`replaces` is the sha256 of the document's exact bytes as the caller last read them. Omitting it on
+a `write` asserts that the document does not exist yet. A `delete` always needs it, because there
+is no create case to spend the omission on.
+
+| Change                     | Document now       | Result                                     |
+| -------------------------- | ------------------ | ------------------------------------------ |
+| `write`, no `replaces`     | absent             | created                                    |
+| `write`, no `replaces`     | present            | refused, `concept already exists`          |
+| `write` or `delete`, hash H | present, hash H    | replaced or removed                        |
+| `write` or `delete`, hash H | present, other hash | refused, `concept changed since it was read` |
+| `write` or `delete`, hash H | absent             | refused, `concept does not exist`          |
+
+Each refusal ends the same way, with `: re-read the concept and retry with its new hash`.
+
+Hashes come from the source side of every surface: `listSource()` and `readSource()` in the
+library, the `source` routes and their `ETag` over HTTP, and on the command line:
+
+```sh
+langonrock query "$DSN" source
+```
+
+```
+b8475eb207b4239c0565fe75e0e95cd3d79732569a3c4ee4804e00452cd57f97	212	ops/runbooks/deploy.md
+dce62d2e17f8bbf981c4e8bb419ab98d6db77fe322cf9b9ecc6dae2d90c41632	317	sales/tables/customers.md
+3b3807a007b08a92991718ba790e3ff312793710a8d9ea141c7f19633deb5750	586	sales/tables/orders.md
+```
+
+`query "$DSN" read <bundle> <path>` prints one document on stdout and its hash on stderr.
+
+### expectedRevision
+
+The per-document hashes protect the documents a batch touches. `expectedRevision` protects
+everything else: the batch commits only if the tenant is still at that revision. Pass it when the
+batch was planned from a read of the whole tenant, a manifest or a search, and a change anywhere
+would invalidate the plan. A stale one is refused with
+`database changed: re-read the revision and document hashes`.
+
+## A conflict publishes nothing
+
+If any precondition fails, nothing in the batch is written and the tenant stays at the revision it
+had. Running the same create-only batch twice shows it:
+
+```sh
+langonrock transact --data ./data --tenant acme --from batch.json
+```
+
+```
+concept already exists: re-read the concept and retry with its new hash
+```
+
+The engine never replays or rebases a refused batch against the newer state. Re-read the hashes,
+decide what the batch should be now, and send it again.
+
+## Running one
+
+From the command line, `transact` reads the batch from `--from` or from stdin and prints the new
+revision as one line of JSON:
+
+```sh
+langonrock transact --data ./data --tenant acme --from batch.json | jq
+```
+
+```json
+{
+  "revision": "984e1dcb03ea2403acd84528949187909ef0e327504f03d92e00b199ba9dc9c9",
+  "snapshot": "0203add32834701b39b60d1b330ad88349a42c93e52bf29d0a660961372098ff",
+  "concepts": 4,
+  "bundles": [
+    "ops",
+    "sales"
+  ],
+  "diagnostics": []
+}
+```
+
+`revision` identifies the commit and `snapshot` the compiled read model it published. The
+diagnostics are the compiler's notes on the tenant as committed, a missing `type` or a link that
+resolves to nothing, the same list `sync` returns.
+
+`langonrock query "$DSN" transact --from batch.json` sends the same batch to a daemon or a remote
+server.
+
+From the library, the same request is a method on the connection:
+
+```ts
+import { open } from 'langonrock'
+
+const db = open('okf:///var/data?tenant=acme')
+const orders = await db.readSource('sales', 'tables/orders.md')
+
+if (orders !== undefined) {
+  await db.transact({
+    changes: [
+      { operation: 'write', bundle: 'sales', path: 'metrics/revenue.md', content: revenue },
+      {
+        operation: 'write',
+        bundle: 'sales',
+        path: 'tables/orders.md',
+        content: edited,
+        replaces: orders.hash
+      }
+    ]
+  })
+}
+
+await db.close()
+```
+
+Over HTTP it is `POST /v1/{tenant}/transact` with the batch as the JSON body, which needs a token
+that may write. A refused batch answers 409 with a JSON body:
+
+```
+HTTP/1.1 409 Conflict
+Content-Type: application/json;charset=utf-8
+
+{"code":"CONFLICT","message":"concept already exists: re-read the concept and retry with its new hash"}
+```
+
+A malformed batch is a 400 and a read-only token a 403. The whole request body, JSON included, is
+capped at 17 MiB. [HTTP API](/docs/guides/http-api) has every status.
+
+Over MCP, `langonrock mcp "$DSN" --database-tools` adds a `transact` tool that takes the same
+changes and answers with the same JSON. It is off by default because the three database tools add
+about 510 tokens of schema to every session; see [MCP server](/docs/guides/mcp).
+
+## One document is a one-change transaction
+
+The single-document verbs are transactions of one change, and they commit immediately:
+`writeSource` and `deleteSource` in the library, `PUT` and `DELETE` on the source routes,
+`query write` and `query delete` on the command line, and the MCP `write` and `delete` tools. Each
+call publishes one revision, visible to the next read. `deleteBundle` commits a revision without
+the bundle and takes no hash.
+
+`sync()` on a tenant the engine owns returns the current committed state and creates no revision.
+
+Every commit compiles and publishes a complete read model of the tenant, reusing the compressed
+bodies of documents it did not change. Ten single-document writes publish ten of them. When edits
+belong together, one batch is both the correct shape and the cheaper one.
+
+## Concurrent writers
+
+Preparing a batch, which is where the compiling happens, takes no lock: it works against one
+pinned revision. Publishing does. The writer takes the tenant's `writer.lock`, a kernel lock on a
+persistent file, re-reads `HEAD`, and checks the base revision and every precondition again. If
+another writer committed in the meantime, the batch is refused with `CONFLICT`, never merged.
+
+Writers to one tenant are serialized. A writer waits up to five seconds for the lock, then fails
+with `database busy: another process holds the lock`. The operating system releases the lock when
+a process dies, so a crashed writer never wedges a tenant, and a paused one keeps it, so no other
+writer decides on its own that the first one is gone.
+
+Readers do not wait for writers. Each read pins one committed revision for its whole operation,
+so a search ranks and fetches bodies from the same revision even if a commit lands in between. The
+next request sees the new one.
+
+<Callout type="warn" title="Adding a document can rename another one">
+  A concept id is the shortest unambiguous form of its path. A batch that adds
+  `staging/orders.md` turns an existing `orders` into `tables/orders`, though nobody touched it.
+  Re-read the manifest after a commit that adds or removes paths rather than assuming ids are
+  stable. Preconditions are unaffected, because they name paths, not ids.
+</Callout>
+
+## What a commit costs
+
+Median milliseconds on an Apple M1 Pro under Bun 1.3.12, ten repetitions in fresh processes:
+
+| Tenant size                                   |  500 | 5,000 | 20,000 |
+| --------------------------------------------- | ---: | ----: | -----: |
+| Create 25 documents in one batch              | 35.6 |  93.8 |  277.9 |
+| Replace 25 documents in one batch             | 13.7 |  39.9 |  132.4 |
+| Winning writer, publication after preparation | 12.2 |  14.9 |   26.8 |
+| Losing writer, refused after preparation      | 18.5 |  18.7 |   30.0 |
+
+The cost follows the size of the tenant more than the size of the batch, because every commit
+publishes a complete read model. The contention rows come from two writers racing for one document
+while a pinned reader keeps the old content, which is a correctness check rather than a sustained
+load test. [Engine benchmarks](/docs/architecture/engine-benchmarks) has the method.
+
+## Tenants from before the engine
+
+A tenant still in the layout that earlier versions wrote refuses transactions:
+
+```
+legacy tenant: migrate with original sources before using database transactions
+```
+
+Over HTTP that is a 409 with `"code": "LEGACY_TENANT"`. [Migrating a legacy
+tenant](/docs/database/migration) moves it over.

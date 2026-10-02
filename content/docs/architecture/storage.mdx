@@ -1,183 +1,229 @@
 ---
 title: Storage
-description: Three layers, one immutable file format, and the reasons this is not a database.
+description: The tenant directory, five record formats, how a commit becomes visible, and what it costs on disk.
 icon: Database
 ---
 
 ## The observation that shapes everything
 
-This data is tiny and read-mostly. A tenant with 10 bundles at 500 concepts and 2 KB each is about
-10 MB. Writes are human-scale, meaning someone edits a concept, not 50k writes per second.
+This data is small and read-mostly. A tenant of 5,000 concepts at about 2 KB each compiles to a
+5.6 MB snapshot, and takes 11.4 MB on disk with its source archive and history records beside it.
+Writes are human-scale, meaning someone or something edits a concept, not 50k writes per second.
 
-That frees the design from nearly everything that makes a database hard. No WAL, no MVCC, no page
-manager, no vacuum, no B-tree. You can rewrite the whole tenant file on every edit, about 10 ms on
-an SSD, and still sit orders of magnitude inside budget.
+That is why the engine can be small. A commit writes complete immutable files and then replaces one
+small root file. There is no write-ahead log, no page manager, no B-tree and nothing to replay when
+a tenant opens. A reader pins one immutable revision for its whole operation instead of
+coordinating with writers row by row.
 
-"From scratch" should mean your own data model, semantics and API on top of boring proven pieces.
-Not writing a storage engine. The advantage here is the layout compiled for the prompt.
+"From scratch" meant a data model, semantics and API designed for the prompt, on top of boring
+proven pieces: immutable files, atomic replacement, kernel locks and sha256.
 
-## Split writes from reads
+## The tenant directory
 
-The easiest way to give users CRUD is to not build CRUD. The source of truth is a directory of OKF
-Markdown they already know how to edit in Obsidian, VS Code or git. A daemon watches and compiles.
-
-Add a bundle by creating a folder. Remove it by deleting the folder. Modify it by saving a file.
-
-```
-sources/acme/          <- watch this
-  sales/               <- a bundle
-    tables/orders.md
-  ops/                 <- another bundle
-    runbooks/deploy.md
-```
-
-They compile together into one snapshot for the tenant, and the manifest carries a `bundle` column
-so an agent can filter without loading anything extra.
-
-Ids stay bare while they are unique across the whole tenant. Only the ones that clash between
-bundles pay for a `bundle/` prefix, and links are rewritten to match. Measured on two real Google
-samples merged into one tenant, nothing collided. Forcing a collision by duplicating a bundle
-produced `ga4/events_` and left the other bundle's ids untouched.
-
-## Three layers
-
-1. **Immutable content-addressed snapshot.** One `.tnt` file holding the manifest, the directory
-   and every concept blob. Its name is the sha256 of its own bytes, so an identical bundle always
-   lands on the same file and re-storing it is a no-op.
-2. **Tenant ref.** A one-line `current` file naming the active snapshot. The only mutable thing in
-   the system, updated by atomic rename.
-3. **Derived, disposable.** The BM25 index. Rebuildable from layers 1 and 2.
-
-The manifest is not in layer 3. It lives inside the snapshot, because it must be byte-identical to
-what the compiler produced.
-
-Layer 3 being disposable is what makes [backups](/docs/guides/backups) easy. Back up layers 1 and 2
-and nothing else.
-
-## Disk layout
+This is the quickstart tenant after one import and one commit.
 
 ```
 data/
   tenants/acme/
-    current              # one line: active snapshot id
-    lock                 # present only while a writer holds it
-    snapshots/
-      d735c5d3….tnt      # immutable, named by sha256 of its own bytes
-      78de7c5c….tnt      # previous version
-    log.jsonl            # append-only audit
+    HEAD                      committed root: revision, snapshot, archive, checksums
+    snapshots/<sha256>.tnt    compiled read model: manifest, directory, compressed bodies
+    sources/<sha256>.src      exact frontmatter prefixes, paths, hashes, navigation files
+    revisions/<sha256>.rev    one immutable record per commit, naming its parent
+    imports/<sha256>.imp      file hashes of an imported folder, as of the last import
+    staging/                  writes being prepared, never visible to readers
+    writer.lock               held by the one process publishing
+    retention.lock            shared by readers opening, exclusive for collection
 ```
 
-There is no `derived/` directory. An earlier draft put a `bm25.idx` there, but the index turned out
-cheap enough to rebuild in memory, so the only things on disk are the snapshots and the pointer to
-them.
+Two more appear only when needed. `recovery/` keeps the `HEAD` an explicit repair replaced, and
+`current` is the pointer of a tenant that predates the engine, preserved after migration. At the
+data root sit `tokens.json` and the optional `sources.json`.
 
-## The tenant file format
+Everything except `HEAD` and the two locks is immutable and named by the sha256 of its own bytes.
+An ordinary read goes from `HEAD` straight to the snapshot. It never walks history and never opens
+a source archive, which is what keeps opening a tenant as cheap as it was before the engine had
+history at all.
+
+A snapshot digest names compiled bytes, and a revision digest names a commit. Two revisions can
+share a snapshot when a commit changes nothing the compiler emits, such as a navigation file. Use
+revisions for concurrency, history and restore, and snapshots for cache validation.
+
+### Bundles share one tenant
+
+Every bundle of a tenant compiles into the same snapshot, and the manifest carries a `bundle`
+column so an agent can filter without loading anything extra. Ids stay bare while they are unique
+across the whole tenant. Only the ones that clash between bundles pay for a `bundle/` prefix, and
+links are rewritten to match.
+
+Folders are interchange rather than storage. `import` reads one, a tracked import refuses a
+document that changed on both sides, and `export` writes a new one. See [import, watch and
+export](/docs/database/folders).
+
+## The record formats
+
+### One frame for the engine's own records
+
+`HEAD`, source archives, revision records and import maps share a 48-byte frame, followed by JSON
+metadata and then an optional binary payload.
+
+| Bytes  | Field                                     |
+| ------ | ----------------------------------------- |
+| 0–3    | Magic: `LRH1`, `LRS1`, `LRR1` or `LRI1`   |
+| 4–7    | Format version, little-endian `uint32`, 1 |
+| 8–11   | Metadata length                           |
+| 12–15  | Payload length                            |
+| 16–47  | sha256 of the metadata JSON               |
+
+Metadata is capped at 64 MiB. A record whose magic, version, lengths or metadata digest disagree is
+refused as corruption rather than parsed.
+
+| Record           | Magic  | Holds                                                                                                                      |
+| ---------------- | ------ | -------------------------------------------------------------------------------------------------------------------------- |
+| `HEAD`           | `LRH1` | Revision, snapshot and archive digests, crc32 checksums of the snapshot's header, directory and manifest, import references |
+| Source archive   | `LRS1` | Per document: bundle, path, hash, size and its frontmatter prefix; where a concept's body sits in the paired snapshot     |
+| Revision         | `LRR1` | Parent, snapshot, archive, concept count, bundles, diagnostics, summary width, checksums, creation time                   |
+| Import map       | `LRI1` | The hash of every file in an imported folder at the last import                                                           |
+
+`HEAD` has no payload and is capped at 1 MiB. The quickstart tenant's, with digests shortened:
+
+```json
+{
+  "version": 1,
+  "revision": "7ae034f3080c…",
+  "snapshot": "0203add32834…",
+  "archive": "3cd47e2f320d…",
+  "checksums": { "header": 639938668, "directory": 3436660321, "manifest": 346668850 },
+  "imports": [{ "source": "…/sources/acme", "mapping": "0fc38bec805e…" }]
+}
+```
+
+After the first collection `HEAD` also lists the retained revisions, one more per commit until the
+next collection. A store that commits for long enough without collecting is refused with
+`head exceeds size limit; run gc to bound history`.
+
+### TNT1, the compiled read model
 
 ```
 [header]    magic "TNT1", version, section offsets   (32 bytes)
 [manifest]  TSV, uncompressed, contiguous
-[dir]       id -> (offset, len, section_offsets, edges by type, dangling)
+[dir]       JSON: id -> offset, length, sections, title, stale_after, checksum
 [blobs]     zstd, one per concept
 ```
 
 The header is 32 bytes: four bytes of magic, then seven little-endian `uint32` values giving the
-version and the offset and length of each of the three sections.
+version and the offset and length of each of the three sections. Those offsets cap a snapshot at
+the 32-bit limit, about 4 GiB.
 
-The directory also carries each concept's link targets grouped by the section they were linked
-from, and the targets that resolved to nothing. That is what `graph` reads, and it is stored
-grouped and unpacked on first use because the directory is parsed on every cold open: the flat
-form cost that open a third more at twenty thousand concepts, the grouped form 3.6 ms and 5.5
-percent of disk.
+The engine compresses each body with zstd at level 1 and stores a crc32 of the uncompressed body in
+the directory, checked on every decompression. Snapshots written before the engine carry no
+checksums and still read; the engine does not claim to verify what was never recorded.
 
 The manifest sits contiguous and uncompressed on purpose. Slice the byte range and send it straight
 to the prompt. No parsing, no decompression, no allocation. It is the read that happens every turn,
 and the others are rare.
 
-## Why blobs live inside the snapshot
+### Each body is stored once
 
-An earlier draft put each concept in its own content-addressed file and made a snapshot an index
-over them. That buys cross-snapshot dedup: editing one concept in a 500-concept bundle would
-rewrite one blob instead of all of them.
+A document is its frontmatter prefix plus its body. The source archive keeps the prefix exactly as
+written and records where the body sits, compressed, in the paired snapshot. Reconstructing a
+source concatenates the two, so no body is stored twice, and a navigation file, which never becomes
+a concept, is kept whole in the archive.
 
-It was not worth it. The whole premise is that a tenant is about 10 MB and writes are human-scale,
-which is exactly the case where rewriting everything is cheap and a second level of indirection is
-not. A self-contained snapshot also makes the two operations that matter trivially correct: a
-backup is a file copy, and a restore is a file copy back.
+That is also why a `.tnt` alone is not a backup. It holds the compiled read model, not the
+frontmatter the compiler stripped. A complete backup is the whole tenant directory; see [collection
+and backups](/docs/database/maintenance).
 
-The cost is honest and worth stating. Retaining N old versions costs N full snapshots rather than N
-deltas. At 12 KB to 30 KB per real bundle after zstd, that is not a number worth engineering around
-yet. Revisit it if a tenant passes roughly 500 MB, which is the same threshold that would force the
-write path to change anyway.
+## How a commit becomes visible
 
-## Write path
+Preparation happens outside any lock: the candidate snapshot, source archive and revision record
+are built in a private directory under `staging/`, and a commit that leaves bodies unchanged copies
+their compressed bytes rather than compressing them again.
 
-```
-write <digest>.tnt.tmp -> fsync -> rename to <digest>.tnt -> rename("current")
-```
+Then the writer takes `writer.lock` and re-reads `HEAD`. If the base revision or any document hash
+it depends on changed, the commit is refused and nothing is published. Otherwise each artifact is
+written, synced and renamed to its digest name, and its directory is synced. A file that already
+exists under that name is hashed and reused only if its bytes match. The new `HEAD` is written with
+an ordering barrier, atomically replaces the old one, and is flushed before the call returns.
 
-Copy-on-write. Readers never see a partial state, because rename is atomic. One writer per tenant,
-enforced by a lock file.
+That replacement is the single commit point for every changed document and the compiled read model
+together. Content addressing assumes the name describes the bytes, which is why nothing is ever
+written to its final name directly. What each flush means on each operating system, and how every
+failure surfaces, is in [durability and failures](/docs/database/durability).
 
-<Callout type="warn" title="Both renames matter, and the first one was missing at first">
-  An earlier version wrote the snapshot straight to its digest name. A crash halfway through left a
-  truncated file whose name still claimed to be that content, so the next `put` found it, reported
-  `(reused)`, and pointed `current` at a snapshot that could not be parsed. The store was
-  permanently unreadable and nothing had reported an error.
-</Callout>
+## Readers pin a revision
 
-Content addressing assumes the name describes the bytes. Anything that can break that assumption
-breaks the whole scheme, quietly.
+A reader takes `retention.lock` shared, reads `HEAD`, opens the snapshot and releases the lock. It
+keeps that file open for the whole operation, so a search ranks and fetches bodies from the same
+revision even if a commit lands in between. Collection takes the same lock exclusively, so it never
+deletes a file in the window between a reader reading `HEAD` and opening the snapshot.
 
-Choosing this write model removes transactions, isolation and crash recovery from the project.
+The shared read cache holds at most 16 tenants. Evicting one releases the cache's hold without
+closing reads already in flight.
 
-## Readers take no lock at all
-
-Snapshots are immutable, so reads are always safe and parallel, even during a write. This is the
-payoff of copy-on-write: the hard part of concurrency does not exist.
+`writer.lock` is a kernel lock on a file that is never deleted. The operating system releases it
+when the process holding it dies, and nothing ever reclaims it by age, so a paused writer cannot
+lose it to an impatient one. A writer that cannot get it within five seconds fails with
+`database busy: another process holds the lock`. Never delete either lock file while a store is in
+use.
 
 ## Multi-tenancy
 
-A tenant is a directory boundary. The tenant id never comes from a user-supplied path, and is
-always resolved through a lookup table or validated against an allowlist.
+A tenant is a directory boundary. The tenant id is validated against `[a-z0-9_-]`, one to 64
+characters, before it reaches the filesystem, and over TCP it comes from the token's grant rather
+than from the request path.
 
 Derived indexes are per tenant, never shared. A shared search index leaks content across tenants
-through ranking.
+through ranking. A transaction belongs to one tenant; there are no cross-tenant transactions.
 
 <Callout type="warn" title="Content addressing has a tenancy trap">
   A global blob store turns the hash into an existence oracle, letting one tenant probe whether
-  another holds given content. The blob namespace is per tenant by default. You lose cross-tenant
-  dedup, which at 10 MB per tenant costs nothing.
+  another holds given content. Every artifact is looked up inside one tenant's directory only. You
+  lose cross-tenant dedup, which at this scale costs little.
 </Callout>
 
-## Why not Postgres
+## What it costs on disk
 
-You give up ad-hoc queries, cross-tenant transactions and external inspection tools, and you own
-the bugs. For key lookup over small immutable documents, none of that bites.
+Immutability is paid in disk, linearly in edits. Every commit writes a complete snapshot and source
+archive. Unchanged compressed bodies are reused when the new files are built, but the files
+themselves share nothing, so a one-line change writes a full copy of the compiled tenant. Ten edits
+at 5,000 concepts leave 125 MB from an 11.4 MB tenant.
 
-If analytical queries over metadata ever become a requirement, SQLite per tenant gives you 90% of
-it for free while keeping the one-file-per-tenant property that makes backup a copy.
+Against the engine it replaced, with the same ten edits and ten versions kept on each side, total
+allocated disk at 20,000 concepts rises about 69 percent, and the store alone about 96. Native
+history keeps complete sources, frontmatter and navigation files included, where the old engine
+kept compiled snapshots, and the engine compresses at level 1. The [engine
+benchmarks](/docs/architecture/engine-benchmarks) have every row.
+
+`gc` is what keeps this bounded. It keeps the ten newest committed revisions by default, publishes
+the new retention boundary durably before deleting anything, and then removes unreferenced
+snapshots, archives, revision records, import maps and abandoned staging. A deletion that fails is
+reported and can be retried. It is an explicit command, never run during an ordinary read or
+write; see [collection and backups](/docs/database/maintenance).
+
+## Why its own engine
+
+There is no SQLite, no external database process and no Python anywhere in the runtime, the build,
+the tests or the benchmarks. The engine is Bun and TypeScript plus a project-owned C adapter of
+about three hundred lines for kernel locks, flushes and atomic replacement.
+
+What that gives up is stated plainly: no SQL or other query language, no replication, no
+cross-tenant transactions, no guarantees on network filesystems, and none of the inspection tools a
+mainstream database ships with. For keyed reads of small documents compiled for a prompt, none of
+that is the work being done. What it buys is a format small enough to describe on this page, a
+commit protocol with one publication point, and immutable files anyone can check with `shasum`.
 
 ## Settled decisions
 
 **The hash is sha256.** `Bun.CryptoHasher` does not support blake3. blake2b256 is available, but
-sha256 also lets you verify a blob with `shasum` from a shell, which matters for a store you want
+sha256 also lets you verify a file with `shasum` from a shell, which matters for a store you want
 to inspect and back up by hand.
 
-**Zero runtime dependencies below MCP.** `Bun.YAML.parse` handles OKF frontmatter including the
-nested v0.2 `sources` array, and `Bun.Glob` handles directory walking.
+**No runtime dependencies below MCP.** Two runtime packages, the MCP SDK and `zod`, serve the MCP
+server; everything else is Bun and the C adapter. `Bun.YAML.parse` handles OKF frontmatter
+including the nested v0.2 `sources` array, and `Bun.Glob` handles directory walking.
 
-## Retention
-
-`current` is never collected, and nothing newer than the grace window, one hour by default, is
-collected either. The grace period is not politeness: a reader holds a path rather than an open
-handle, parsing the directory on open and slicing blobs later, so deleting a snapshot out from
-under one would fail its next `get`.
-
-Beyond that, the newest N survive, 10 by default, and the rest go.
-
-A snapshot `current` points at is never deleted even when it is detected as truncated. Removing it
-would destroy the only evidence of what went wrong. The collector exits non-zero and says so
-instead.
+**Corruption fails closed.** A `HEAD` that fails its checks is reported as corruption, and the
+engine never falls back silently to an older revision. Choosing one is an explicit, verified repair.
 
 ## Still open
 

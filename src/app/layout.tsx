@@ -16,6 +16,9 @@ export const metadata: Metadata = {
   applicationName: appName,
   keywords: [
     'document database',
+    'Markdown database',
+    'transactions',
+    'version history',
     'Open Knowledge Format',
     'OKF',
     'MCP server',

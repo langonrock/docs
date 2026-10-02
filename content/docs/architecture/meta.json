@@ -7,8 +7,8 @@
     "read-model",
     "storage",
     "agent-api",
-    "cross-platform",
     "runtime",
-    "benchmarks"
+    "benchmarks",
+    "engine-benchmarks"
   ]
 }

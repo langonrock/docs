@@ -1,8 +1,16 @@
 ---
 title: Benchmarks
-description: The numbers, the method behind them, and the places the store loses.
+description: The read model and the serving layer, measured — tokens, round trips, retrieval, latency, and the places the store loses.
 icon: ChartColumn
 ---
+
+These measure what agents and clients touch: the read model and the layer that serves it. They
+were rerun on 2026-10-01 with Bun 1.4.2 on an Apple M1 Pro, and every timing is the median of three
+runs. Token counts do not vary between runs.
+
+The engine underneath, measured against the one it replaced, has its own protocol, its own
+acceptance rule and its own open questions. That is [engine
+benchmarks](/docs/architecture/engine-benchmarks).
 
 ## Method
 
@@ -13,8 +21,6 @@ Twenty fixed questions with a stated ground truth, and both paths charged for de
 concepts. The baseline is the OKF reference consumption pattern: read `index.md`, read a concept,
 follow its links. It runs the same BM25 this project uses over the raw Markdown, with perfect
 navigation and never a wrong turn.
-
-Every number below comes from one script, on one machine.
 
 ```sh
 bun bench/run.ts [profile] [bundles] [concepts per bundle]
@@ -32,10 +38,17 @@ re-billed at 10% on every later call, the prompt cache rate. A call that would a
 the context is not counted at all, since an agent would not spend the turn. Both paths pay under
 that same model.
 
-| Path                | Billed tokens |  Calls |
-| ------------------- | ------------: | -----: |
-| OKF index navigator |       116,357 |     30 |
-| langonrock          |    **64,355** | **17** |
+| Path                               | Billed tokens |  Calls |
+| ---------------------------------- | ------------: | -----: |
+| OKF index navigator                |       116,357 |     30 |
+| langonrock, manifest in the prompt |    **64,355** | **17** |
+| langonrock, search first           |        56,928 |     36 |
+
+The store has two strategies and the benchmark bills both. Keeping the manifest in the cached
+prefix costs the fewest round trips, which is what this project optimises for. Ranking first and
+fetching what ranked never reads the manifest at all. That is cheaper in tokens here and much
+cheaper on a large tenant, at one extra turn per question. [Which strategy, and
+when](#which-strategy-and-when) has the crossover.
 
 | What a read costs                    |  Tokens |
 | ------------------------------------ | ------: |
@@ -61,12 +74,12 @@ that same model.
 The tenant grows by adding bundles of 500 concepts each, which is what the `1 500`, `10 500` and
 `40 500` runs mean. That is why the slice stays the same size.
 
-| Concepts         |    500 |   5,000 |  20,000 |
-| ---------------- | -----: | ------: | ------: |
-| Bundles          |      1 |      10 |      40 |
-| Whole manifest   | 20,549 | 205,851 | 835,922 |
-| One bundle slice | 20,549 |  20,419 |  20,486 |
-| Snapshot on disk | 0.5 MB |  5.1 MB | 20.7 MB |
+| Concepts         |     500 |   5,000 |  20,000 |
+| ---------------- | ------: | ------: | ------: |
+| Bundles          |       1 |      10 |      40 |
+| Whole manifest   |  20,549 | 205,851 | 835,922 |
+| One bundle slice |  20,549 |  20,419 |  20,486 |
+| Snapshot on disk | 0.56 MB |  5.6 MB | 22.6 MB |
 
 At 500 concepts there is only one bundle, so the whole manifest and the slice are the same number.
 
@@ -75,26 +88,26 @@ tenant](/docs/guides/large-tenants) usable at all.
 
 ## Latency, median milliseconds
 
-| Operation                    |   500 | 5,000 | 20,000 |
-| ---------------------------- | ----: | ----: | -----: |
-| Compile and write a snapshot |    31 |   253 |    829 |
-| Open a snapshot, cold        |  0.55 |  4.45 |   17.6 |
-| Read the manifest, warm      | &lt;0.01 | &lt;0.01 | &lt;0.01 |
-| Batched `get` of 3 sections  |  0.08 |  0.11 |   0.09 |
-| Build the BM25 index         |    22 |   193 |    674 |
-| BM25 query, with `pos`       |  0.29 |  0.94 |   2.13 |
+| Operation                    |  500 | 5,000 | 20,000 |
+| ---------------------------- | ---: | ----: | -----: |
+| Compile and write a snapshot |   42 |   226 |    725 |
+| Open a snapshot, cold        | 0.86 |  4.26 |   18.9 |
+| Read the whole manifest      | 0.03 |  0.11 |   0.44 |
+| Batched `get` of 3 sections  | 0.04 |  0.04 |   0.05 |
+| Build the BM25 index         |   19 |   152 |    578 |
+| BM25 query, with `pos`       | 0.22 |  0.55 |   1.65 |
 
-`get` is flat. Batching a fetch costs the same on a tenant of twenty thousand concepts as on one of
-five hundred.
+`get` is flat. A batched fetch of three sections costs the same 0.04 ms on twenty thousand concepts
+as on five hundred. Compiling, indexing, search and the whole-manifest read grow with the corpus.
 
-None of this is where the time goes, though. One saved model round trip is worth about a second,
-four orders of magnitude more than any row above.
+None of it is where the time goes. One saved model round trip is worth about a second, three to
+four orders of magnitude more than any read in this table.
 
-That table leaves memory mostly out on purpose. The store rebuilds the index in memory once per
-snapshot, and peak process memory at 20,000 concepts landed around 0.85 GB — down by roughly a
-third since the postings moved into typed arrays and the build stopped holding every body at once.
-It is still the practical ceiling on how many large tenants one daemon can hold. `serve` rebuilds
-the index right after each sync, so the first search after a save does not pay the build.
+Memory is not in that table. The store keeps one BM25 index in memory per snapshot: 1.1 MB of heap
+at 500 concepts, 8.1 MB at 5,000 and 32 MB at 20,000. A fresh process that opens 20,000 concepts,
+builds the index and searches peaks at 0.36 GB resident. The index build streams the bodies off a
+single read of the snapshot's blob region, and `serve` rebuilds the index right after each sync, so
+the first search after a save does not pay for it.
 
 ## Retrieval accuracy
 
@@ -105,227 +118,120 @@ on 500 concepts.
 | ------------------------------------------ | -------: | -------: |
 | OKF BM25 over raw Markdown                 |      70% |     0.43 |
 | langonrock BM25                            |      70% |     0.43 |
-| langonrock BM25 plus the one-hop expansion |      75% |     0.44 |
-| langonrock anchored on the named concept   |      80% |     0.72 |
-| anchored, plus the one-hop expansion       |  **85%** | **0.72** |
+| langonrock BM25 plus the one-hop expansion |  **75%** | **0.44** |
 
-Queries that describe a concept rather than name it land at 95% on both sides. The anchor is the
-largest single gain in the table, and it comes from the queries being what they are: a question
-that names `orders_b1` contains that id, BM25 tokenises it into `orders` and `b1` and loses it,
-and the anchor does not. [How it ranks](/docs/architecture/read-model#anchor-on-the-named-concept),
-including the constant that had to be swept and the two profiles where describing queries paid a
-few hundredths of reciprocal rank for it.
+The last row is what you get without configuring anything. Expansion is on unless a caller passes
+`expand: false`, which is what the middle row measures. The CLI and the MCP tools offer no way to
+turn it off.
 
-<Callout title="Compiling no longer costs ranking">
-  It used to. The frontmatter the compiler strips repeated the concept id in its `resource` and
-  `sources` URLs, which happened to help the ranker, and the store ranked worse than the raw files
-  because of it. Indexing the concept's own names — its id and its frontmatter `title`, weighted
-  above the other cells — recovered all of it. The title rides in the snapshot directory, never in
-  a manifest row, so this costs zero prompt tokens.
+Queries that describe a concept rather than name it land at 95% on both sides.
+
+<Callout title="Compiling does not cost ranking">
+  The frontmatter the compiler strips repeats the concept id in its `resource` and `sources` URLs,
+  which helps a ranker that reads raw files. The store makes up for it by indexing the concept's
+  own names, its id and its frontmatter `title`, weighted above the other cells. It matches raw
+  Markdown on mean reciprocal rank and beats it on hit rate with the expansion on. The title rides
+  in the snapshot directory, never in a manifest row, so this costs zero prompt tokens.
 </Callout>
-
-## The graph
-
-`graph` derives backlinks, orphans, dangling links, hubs, components and clusters from the
-snapshot. None of it touches the manifest, so the agent's cost is unchanged by construction: the
-manifest, the sessions and the retrieval rows above are byte-for-byte the same with the graph in
-the store as without it. What changed is the snapshot, which now carries each concept's typed
-edges and dangling links in its directory, and the cold open, which parses that directory.
-
-| Concepts                               |             500 |             5,000 |                20,000 |
-| -------------------------------------- | --------------: | ----------------: | --------------------: |
-| Whole manifest, tokens                 | 20,549 → 20,549 | 205,851 → 205,851 |     835,922 → 835,922 |
-| Session, manifest strategy, tokens     | 64,355 → 64,355 | 546,080 → 546,080 | 2,184,317 → 2,184,317 |
-| Snapshot on disk                       |  0.52 → 0.55 MB |      5.3 → 5.5 MB |        21.2 → 22.3 MB |
-| Open a snapshot cold, ms               |     0.68 → 0.74 |         5.4 → 6.0 |           21.4 → 25.0 |
-| Build the graph, clusters included, ms |             4.9 |                37 |                   159 |
-
-The snapshot grows five and a half percent, all of it the typed edges in the directory, and the
-cold open pays for parsing them: three and a half milliseconds at twenty thousand concepts. The
-build is timed on its own because it is what a first `graph` call per snapshot pays, Louvain
-included, and it is never on the agent's read path.
-
-What the same corpora say when asked for their shape, with the edge types the compiler read off
-the authors' own headings:
-
-| Profile     | Concepts | Edges | Types                              | Orphans | Components | Clusters | Top hub, in/out   |
-| ----------- | -------: | ----: | ---------------------------------- | ------: | ---------: | -------: | ----------------- |
-| `reference` |      500 |   875 | `joins` 750, `definition` 125      |     125 |          1 |       10 | `campaigns` 4/2   |
-| `spec`      |       28 |   169 | 89, one per RFC section that cites |      15 |          2 |        4 | `rfc2119` 25/0    |
-| `handbook`  |    1,281 |   403 | `ingredients` 237, `mode` 166      |   1,183 |        976 |      979 | `recipe_105` 51/0 |
-| `scripture` |    1,189 |     0 | —                                  |   1,189 |      1,189 |    1,189 | —                 |
-| `book`      |      102 |     0 | —                                  |     102 |        102 |      102 | —                 |
-
-The 125 orphans in the reference catalogue are its 125 metrics: tables link to tables and metrics
-link to tables, nothing links to a metric, so a metric is reachable by search only. In the RFCs the
-hub is `rfc2119`, cited by 25 of the other 27 and citing none, and the types tell normative
-references from informative ones because the authors put them under different headings. Mrs
-Beeton's recipes are 92 percent orphans with one recipe, No. 105, that 51 others depend on. The
-Bible and the novels have no links, and the graph says so in one line rather than pretending
-otherwise.
-
-### Questions only the graph answers
-
-The twenty questions above are lookups, which is where a graph has nothing to add.
-`bun bench/graph.ts [bundles] [concepts per bundle]` asks twenty different ones over the same
-reference corpus: which concepts depend on a table, what is affected within two hops upstream if it
-is deprecated, and where a metric comes from and what its source joins with. The truth is read off
-the compiled graph, every path delivers the answer as manifest rows, and the billing model is the
-one used everywhere else.
-
-| Concepts                               |                500 |                5,000 |               20,000 |
-| -------------------------------------- | -----------------: | -------------------: | -------------------: |
-| Answer size, mean / max rows           |            3.7 / 9 |             4.3 / 15 |             4.3 / 15 |
-| OKF navigator, tokens / calls / recall | 318,510 / 43 / 69% | 1,132,954 / 44 / 59% | 3,750,647 / 43 / 60% |
-| Manifest in the prompt                 | 20,549 / 1 / 100%¹ |  205,851 / 1 / 100%¹ |  835,922 / 1 / 100%¹ |
-| Search first, lexical only             |  29,508 / 20 / 45% |    29,568 / 20 / 40% |    32,267 / 20 / 40% |
-| Search first, anchored                 |  28,943 / 20 / 68% |    29,857 / 20 / 72% |    32,538 / 20 / 72% |
-| Graph, one scoped read per question    |  6,091 / 20 / 100% |    6,875 / 20 / 100% |    6,875 / 20 / 100% |
-
-¹ Charged as if the agent computed a two-hop inbound closure over every row in its context without
-error, which is the optimistic convention every path gets. At twenty thousand concepts that is a
-bill for a manifest that does not fit in a context at all.
-
-The navigator follows links downstream perfectly and has no way upstream, because a Markdown link
-has no reverse: 100 percent on lineage, 12 to 28 percent on impact. Lexical search finds the
-concept the question names and little of what surrounds it. The anchored search is the same call at
-the same price with the walk fused in: lineage goes to 89 and 100 percent, direct dependents to 86,
-and impact to a third, where it stays because two hops upstream is up to fifteen concepts and a
-search returns eight rows plus eight linked ones. The last row is a measurement, not a feature: a
-scoped read is exact by construction and costs what its rows cost, and [nothing exposes it over
-MCP](/docs/architecture/agent-api#the-graph-earned-no-verb).
-
-Adding backlinks to the one-hop expansion itself was measured too, alone or with a tie-break by
-inbound degree, and changed the hit rate on none of the linked corpora while adding rows to every
-result. The expansion keeps the outgoing hop it had; what search gained is the anchor.
 
 ## Document shape
 
-Everything above describes a warehouse catalogue. The same harness runs over real public-domain
-corpora, converted to OKF mechanically. The saving is a property of the documents rather than of
-the store: it tracks how much structure — links, headings, titles — the corpus already carries.
-Retrieval is hit rate at 8 for queries that name a concept, store with its default expansion
-against the raw-file baseline.
+Everything above describes a warehouse catalogue. To find out what the store does to documents that
+are not reference tables, the same harness runs over four real public-domain corpora, converted to
+OKF concepts mechanically. Frontmatter holds `type` and `title`, headings are the document's own,
+and the converter adds no link, table or section the source does not already have.
 
-| Profile            | What it is                           | Saving | Retrieval vs raw |
-| ------------------ | ------------------------------------ | -----: | ---------------- |
-| `spec`             | 28 IETF RFCs                         |    98% | **100%** vs 95%  |
-| `scripture-coarse` | The Bible, one concept per book      |    97% | 90% vs 90%       |
-| `book-coarse`      | Four novels, one concept per novel   |    89% | 100% vs 100%     |
-| `handbook`         | 1,281 of Mrs Beeton's recipes        |    84% | **100%** vs 90%  |
-| `book`             | Four novels, one concept per chapter |    69% | 80% vs 80%       |
-| `scripture`        | The Bible, one concept per chapter   |    66% | 90% vs 90%       |
-| `reference`        | The warehouse catalogue above        |    51% | **75%** vs 70%   |
+| Profile             | What it is                                                     | Concepts |
+| ------------------- | -------------------------------------------------------------- | -------: |
+| `reference`         | Generated warehouse catalogue, the corpus used above           |      500 |
+| `scripture`         | The King James Bible, one concept per chapter                  |    1,189 |
+| `scripture-coarse`  | The same text, one concept per book, chapters as headings      |       66 |
+| `book`              | Four novels, one concept per chapter                           |      102 |
+| `book-coarse`       | The same text, one concept per novel, chapters as headings     |        4 |
+| `handbook`          | Mrs Beeton's _Book of Household Management_, one per recipe    |    1,281 |
+| `handbook-untitled` | The same recipes with no `title` field, the name left as an H1 |    1,281 |
+| `spec`              | Twenty-eight IETF RFCs, one concept per document               |       28 |
 
-The store meets or beats the raw files on every profile except the novels' top position (MRR 0.69
-against 0.72). The savings on the prose profiles come from `find`, covered next: before it, prose
-with no headings and no links saved about two percent, because the advantage came entirely from
-documents that were already structured.
+Each profile gets twenty questions with ground truth stated the same way, and every path pays for
+delivering the same concepts. `manifest` is the manifest-in-the-prompt strategy, `search` is
+search-first, and `find` is search-first with the fetch replaced by a located window. The store's
+cost is the cheapest of the three. `find` only applies where the twenty questions quote the text,
+because a natural-language question has nothing to locate; `n/a` marks the other profiles.
 
-## Locating instead of reading: before and after
+| Profile            |    Corpus | `manifest.tsv` | OKF billed | `manifest` |   `search` |     `find` | Saving |
+| ------------------ | --------: | -------------: | ---------: | ---------: | ---------: | ---------: | -----: |
+| `spec`             |   767,143 |          1,176 |    756,168 | **13,995** |     52,862 |        n/a |    98% |
+| `scripture-coarse` | 1,067,694 |          2,028 |  1,278,420 | **39,395** |     67,740 |     45,695 |    97% |
+| `book-coarse`      |   343,265 |            113 |    338,296 |    122,236 |    186,850 | **37,736** |    89% |
+| `handbook`         |   613,230 |         26,198 |    125,798 |     71,797 | **19,551** |        n/a |    84% |
+| `book`             |   344,540 |          1,772 |    130,101 |    127,077 |    188,730 | **39,862** |    69% |
+| `scripture`        | 1,076,465 |         38,283 |    159,174 |    148,029 |     75,625 | **53,801** |    66% |
+| `reference`        |   264,744 |         20,549 |    116,357 |     64,355 | **56,928** |        n/a |    51% |
 
-Sliced reads changed the read path: `offset` and `limit` window a concept, `find` locates a literal
-phrase and returns a window around it plus the offset of every occurrence, and the MCP boundary
-caps a read at 15,000 characters per concept by default. The same harness ran on the commit before
-the change and on the commit after, same machine, so every claim below is a measured pair.
+Round trips are left out of that table because they barely vary. The manifest strategy spends 16
+to 21 calls, and search-first and `find` spend 35 to 40. Both buy tokens with one extra turn per
+question, and this project treats a turn as the expensive resource.
 
-### Tokens
+| Profile     | OKF `read_concept` | `get(id)` | `get(id, section)` | `get(id, find)` |
+| ----------- | -----------------: | --------: | -----------------: | --------------: |
+| `spec`      |             23,439 |    23,321 |            **388** |             n/a |
+| `book`      |              3,261 |     3,244 |              3,244 |         **513** |
+| `scripture` |                852 |       841 |                841 |         **476** |
+| `reference` |                594 |       445 |            **213** |             n/a |
+| `handbook`  |                292 |       279 |             **87** |             n/a |
 
-Best strategy on each side, against the OKF navigator over the raw files:
+The ordering follows how much structure the document already carries, not corpus size. Two things
+pay off.
 
-| Profile            |    OKF raw | Before this change |       Today | Saving before | Saving today |
-| ------------------ | ---------: | -----------------: | ----------: | ------------: | -----------: |
-| `spec`             |    756,168 |             13,995 |      13,995 |           98% |          98% |
-| `scripture-coarse` |  1,278,420 |             39,395 |      39,395 |           97% |          97% |
-| `book-coarse`      |    338,296 |            122,236 |  **37,736** |           64% |      **89%** |
-| `handbook`         |    125,798 |             19,200 |      19,551 |           85% |          84% |
-| `book`             |    130,101 |            127,077 |  **39,862** |            2% |      **69%** |
-| `scripture`        |    159,174 |             75,186 |  **53,801** |           53% |      **66%** |
-| `reference`        |    116,357 |             56,423 |      56,928 |           52% |          51% |
+- **Headings.** `get(id, section)` can only return a slice if the document names its slices. An RFC
+  numbers every subsection, so a question about one costs 388 tokens instead of 23,439. A Bible
+  chapter and a novel chapter have no headings, so a section read returns the whole chapter. `find`
+  closes that gap: a located window costs 476 to 513 tokens where the whole document costs 841 to
+  3,244.
+- **Links.** Batching saves a round trip only when the manifest knows which concepts belong
+  together. Mrs Beeton's "No. 105" cross-references and the RFC citation graph both compile into the
+  `links` column. The Bible and the novels have none, so the store spends exactly as many turns as
+  the navigator.
 
-Only the profiles whose questions are literal passages move on `find`, because it adds a retrieval
-unit rather than changing compilation or ranking. Where the questions are natural language — the
-catalogue, the recipes, the RFCs — `find` left the sessions byte-for-byte identical, which was the
-no-regression half of that measurement. `scripture-coarse` keeps its old best honestly: a 66-row
-manifest amortised over the session still beats paying a search per question, so `find` wins where
-the manifest is large or the documents are, not everywhere.
+When a corpus has neither, what is left is the frontmatter the compiler strips, and on real prose
+that is almost nothing: 17 tokens per chapter on the novels and 11 on the Bible, against the 149 a
+full OKF sample header costs.
 
-The `Today` column is the shipped tree rather than the commit `find` landed on, so it also carries
-the `pos` column described below. That is the one percent separating `39,274` then from `39,862`
-now, and it is why `handbook` and `reference` each gave back a point: `pos` rides in every search
-result, so the profiles that read through search pay for it whether or not they use it. Both
-manifest-strategy profiles are unchanged to the token.
+## Locating instead of reading
 
-Per read, on the corpora where locating applies: a novel chapter costs 3,244 tokens whole and
-**513** as a `find` window, frame and match offsets included; a Bible chapter costs 841 whole and
-**476** located.
+Without `find`, the novels save 2 percent. They have no headings to address and no links to
+batch. `find` changes the unit of retrieval instead of the format: search names the chapter, `get`
+with a literal phrase returns a window around the first occurrence plus the offset of every other
+one, and the chapter never enters the context. On these profiles the twenty questions are passages
+to locate.
 
-### Round trips
+| Profile            | OKF billed | Store, without `find` | Store, `find` windows | Saving |
+| ------------------ | ---------: | --------------------: | --------------------: | -----: |
+| `book`             |    130,101 |               127,077 |            **39,862** |    69% |
+| `book-coarse`      |    338,296 |               122,236 |            **37,736** |    89% |
+| `scripture`        |    159,174 |                75,625 |            **53,801** |    66% |
+| `scripture-coarse` |  1,278,420 |            **39,395** |                45,695 |    97% |
 
-`find` spends exactly what search-first spends: two calls per question, 40 per session. Where it
-became the cheapest strategy the store now trades more calls for fewer tokens — `book` moves from
-21 calls at 127,077 tokens to 40 at 39,862 — and the manifest strategy remains available at its old
-cost for a caller that prizes turns over tokens. Nothing else moved: 16 to 21 calls for the
-manifest strategy, 35 to 40 for search-first, before and after.
+All twenty questions located on every row. `scripture-coarse` is the loss. Its 66-row manifest,
+paid once and cached for the session, still beats paying for a search on every question, so `find`
+wins where the manifest or the documents are large, not everywhere. On the other rows the novels go
+from a 2 percent saving to 69, and the chapter-grain Bible drops from 148,029 tokens to 53,801 with
+nothing changed on disk.
 
-### Retrieval
+Every `find` and `search` figure here includes the `pos` column described next, so the tables show
+its cost rather than a version without it.
 
-Unchanged in every cell, by design: ranking was not touched, and the before/after runs agree on hit
-rate and MRR to the last digit on all seven profiles. What `find` changes is what happens after the
-right document is found — attribution inside it becomes an exact offset rather than a read of the
-whole thing.
-
-### Speed
-
-Every latency that existed before `find` stayed within run-to-run noise of its before value: a warm
-query moved by thousandths of a millisecond in both directions, and a batched `get` stayed flat.
-The new operation costs the same order as the old ones — a `find` is one `indexOf` sweep over the
-decompressed body. (Search itself did move later, when `pos` began scanning the top hits' bodies;
-that cost is stated in the next section rather than folded in here.)
-
-| Operation, median            | Embedded     | Over a unix socket |
-| ---------------------------- | ------------ | -----------------: |
-| `get`, whole concepts        | 0.04–0.29 ms |            0.21 ms |
-| `get` with `find`            | 0.05–0.29 ms |          0.16–0.21 ms |
-
-### The cap
-
-The other half of the change is the worst case a naive MCP read can produce. `get` over MCP
-returns at most 15,000 characters per concept by default, framed as `@@ id [start..end of total]`
-and continued with `offset`; the library and the HTTP API stay unbounded by default. Measured as
-the largest single concept of each corpus:
-
-| Largest concept in     | Naive `get` | Through the MCP cap |
-| ---------------------- | ----------: | ------------------: |
-| `book-coarse`, a novel |     172,994 |           **3,758** |
-| `spec`, RFC 9110       |     122,797 |           **3,758** |
-| `handbook`             |      76,221 |           **3,759** |
-| `book`, one chapter    |      11,406 |           **3,760** |
-
-The four read definitions grew with the three new parameters: 833 tokens per session before, 1,062
-after. One window replacing one chapter repays the difference about twelve times over. The `pos`
-column's explanation, the per-tenant strategy advice and the `stale` status later put them at
-1,122; the same window-for-chapter trade repays those sixty tokens about sixty times over. The
-sentence teaching a model that naming a concept anchors the search added sixty more, to 1,182, and
-buys ten points of hit rate on named queries.
-
-Adding the write side took the standing bill to 1,801: `write` costs 413, `delete` 206. That is 52
-percent on top of the read-only figure, and unlike the slicing parameters it does not repay itself
-in reads — a client that never writes pays 619 tokens per session for tools it will not call.
-Against a session that bills 64,355 it is under one percent; against the entry fee it is the
-largest single increase the tool surface has taken.
+Locating costs about what fetching does. A `find` sweeps the decompressed body with `indexOf`, and
+its median over the bench corpora is 0.03 to 0.3 ms: the same as `get` on the same document, and
+three to four orders of magnitude below the model turn it feeds.
 
 ## Locating without a quote: the pos column
 
-`find` needs a literal phrase. Search now points instead: after BM25 ranks, the store scans the
-top hits' bodies for the window where the query's words cluster densest, and every direct hit ends
-in a `pos` cell — the offset to hand straight back as `get(id, {offset: pos, limit: 2000})`.
-Ranking is untouched, and the before/after runs agree on every hit rate and MRR to the last digit
-across all eight profiles.
-
-The questions that needed this are the described ones — summaries rather than quotes, where `find`
-has nothing to anchor on. The same twenty questions per profile, asked descriptively, answered by
-capped document reads against `pos` windows:
+`find` needs a quote, and `pos` removes that requirement. Every direct search hit ends in a `pos`
+column with the offset where the query's words cluster densest in the body, so the second hop can
+be `get(id, { offset: pos, limit: 2000 })` even when the question describes a passage instead of
+quoting it. The same twenty questions, asked as summaries rather than quotes, answered by capped
+document reads against `pos` windows:
 
 | Profile            | Capped reads | `pos` windows | Window held the passage |
 | ------------------ | -----------: | ------------: | ----------------------: |
@@ -335,34 +241,240 @@ capped document reads against `pos` windows:
 | `scripture`        |       76,173 |    **56,780** |                 19 / 20 |
 | `book-coarse`      |   **33,115** |        38,336 |                 20 / 20 |
 
-The last column is checked rather than assumed: a hit means the wanted concept's window really
-contained the passage the question pointed at, and that held in 113 of 135 locatable cases across
-the eight profiles. The `book` misses belong to ranking, not the window — described queries reach
-the top eight only 40 percent of the time on headingless prose, and every question ranking did
-place, the window answered. `book-coarse` is the honest loss from the other side: four documents
-amortise their capped reads across twenty questions at the cache rate, and twenty fresh windows
-cannot.
+The bench checks the last column rather than assuming it. A hit means the wanted concept's window
+contained the passage the question pointed at, which held in 113 of 135 locatable cases across the
+eight profiles. The `book` misses come from ranking, not from the window: described queries reach
+the top eight only 40 percent of the time on prose without headings, and the window answered every
+question that ranking did place. `book-coarse` loses for the opposite reason. Four documents spread
+their capped reads over twenty questions at the cache rate, and twenty fresh windows cannot match
+that. The column itself costs six to sixteen tokens per search result.
 
-What the column costs: six to sixteen tokens per search result, about one percent of a session,
-and the body scan moves a warm search from the old 0.02–0.15 ms range to 0.3–0.9 ms on ordinary
-corpora — up to 14 ms when the top hits are whole novels, still two orders of magnitude below the
-model turn it feeds.
+## The MCP cap
 
-### The experiment that lost
+Over MCP, `get` also caps a naive read. It returns at most 15,000 characters per concept by default,
+frames a partial slice as `@@ id [start..end of total]`, and continues it with `offset`. The library
+and the HTTP API stay unbounded by default, because their callers are programs rather than prompts.
+Measured as the largest single concept of each corpus:
 
-The same round A/B-tested a minimal plural fold in the tokenizer — `orders` meeting `order` in the
-index. It lifted the identifier-heavy `reference` corpus by five points of hit rate and 0.12 of
-MRR, and paid for it with rank quality across every prose corpus: `handbook` lost five points and
-0.06 of MRR, `scripture-coarse` 0.08 of MRR. The fold was reverted, and the losing numbers are
-published next to the winning ones because that is the house rule.
+| Largest concept in     | Naive `get` | Through the MCP cap |
+| ---------------------- | ----------: | ------------------: |
+| `book-coarse`, a novel |     172,994 |           **3,758** |
+| `spec`, RFC 9110       |     122,797 |           **3,758** |
+| `handbook`             |      76,221 |           **3,759** |
+| `book`, one chapter    |      11,406 |           **3,760** |
+
+The most an MCP client pays for one concept is a constant, about 3,760 tokens, whatever the size of
+the document.
+
+<Callout type="warn" title="Prose with nothing to compile">
+  On prose with no headings and no links, whole-document reads save about two percent, and `find` is
+  what makes the store worth using there. Links still cannot be invented: on a corpus with no link
+  graph the store spends exactly as many turns as the navigator.
+</Callout>
+
+## Which strategy, and when
+
+You pay for the manifest once and spread it over the session, and you pay for a search on every
+question. That puts the crossover at a fixed ratio rather than a corpus size.
+
+| Profile            | `manifest.tsv` | One search result | Ratio | Cheaper  |
+| ------------------ | -------------: | ----------------: | ----: | -------- |
+| `handbook`         |         26,198 |               259 |   101 | search   |
+| `scripture`        |         38,283 |               434 |    88 | search   |
+| `reference`        |         20,549 |               731 |    28 | search   |
+| `book`             |          1,772 |               175 |    10 | manifest |
+| `scripture-coarse` |          2,028 |               299 |     7 | manifest |
+| `spec`             |          1,176 |               665 |     2 | manifest |
+
+Over twenty questions the crossover lands near a ratio of twenty. Below it, keep the manifest in
+the prompt and pay for it once. Above it, never read the manifest and rank instead. The store makes
+that call itself: at startup the MCP server measures the manifest, estimates one search result from
+the manifest's own row lengths, and adds one sentence to the manifest tool's description, preferring
+search past a ratio of twenty and the whole manifest below it. The rule classifies all eight bench
+profiles the way the measured sessions came out, and the same manifest always gets the same advice.
+
+Questions that quote the text add a third strategy, search then locate, whose fetch is a flat window
+of about 500 tokens whatever the document size. It wins on three of the four quote-shaped profiles.
+On `scripture-coarse` the manifest stays ahead because it is small. For questions that do not quote,
+the ratio above still decides between manifest and search.
+
+## Concept grain is a corpus decision with a large price
+
+`scripture` and `scripture-coarse` are the same 1,189 chapters of the same text. The only
+difference is whether a chapter is a concept or a heading inside a concept.
+
+| Bible, manifest strategy | Manifest | 20 reads | Manifest re-read at cache rate |      Total |
+| ------------------------ | -------: | -------: | -----------------------------: | ---------: |
+| One concept per chapter  |   38,283 |   16,820 |                        ~93,000 |    148,029 |
+| One concept per book     |    2,028 |   16,900 |                        ~20,500 | **39,395** |
+
+That is 73 percent cheaper for the same text. The manifest re-read on every turn went from 1,189
+rows to 66, while a read stayed one chapter, 845 tokens against 841, because chapters became
+addressable sections. Nearly two thirds of the original bill was re-reading the manifest.
+
+It does not carry over to the novels. Going from `book` to `book-coarse` saves 4 percent, because
+their manifest was only 1,772 tokens and the cost is the 3,244-token chapter itself. Coarsening
+helps a corpus whose manifest is large, not one whose documents are large. The novels need an
+addressable unit smaller than a chapter, which is what `find` provides.
+
+<Callout title="The baseline moves too">
+  At book grain `read_concept` returns a whole book of the Bible, 34,430 tokens, so the baseline's
+  bill goes from 159,174 to 1,278,420. Compare a grain change store against store.
+</Callout>
+
+## Retrieval across corpora
+
+The same questions, top eight, hit rate and MRR:
+
+| Profile     | OKF raw Markdown | langonrock |  plus expansion |
+| ----------- | ---------------: | ---------: | --------------: |
+| `spec`      |       95% / 0.74 | 95% / 0.80 | **100% / 0.81** |
+| `handbook`  |       90% / 0.71 | 95% / 0.83 | **100% / 0.83** |
+| `scripture` |       90% / 0.80 | 90% / 0.80 |      90% / 0.80 |
+| `reference` |       70% / 0.43 | 70% / 0.43 |  **75% / 0.44** |
+| `book`      |       80% / 0.72 | 80% / 0.69 |      80% / 0.69 |
+
+The store matches or beats the raw files everywhere except MRR on the novels, 0.69 against 0.72.
+Prose with no headings and no links gives the compiler nothing to work with.
+
+There is no stemming, and that is a measured decision. A minimal plural fold lifted the
+identifier-heavy `reference` corpus by five points of hit rate and 0.12 of MRR, and cost rank
+quality on every prose corpus: `handbook` lost five points and 0.06 of MRR, and `scripture-coarse`
+lost 0.08 of MRR. Those numbers are why the fold was reverted, and they are published next to the
+winning ones because that is the house rule.
+
+Titles get special treatment because of `handbook`. Mrs Beeton numbers her recipes, so the id is
+`recipe_181` and the words "rabbit soup" live only in the `title` the compiler strips. Before the
+index folded titles in, the store hit 50 percent on `handbook` against the baseline's 90. The index
+now puts every concept's title next to its id, weighted above the other fields, and the store hits
+95.
+
+`handbook-untitled` is the same bundle with the title moved out of the frontmatter into the body as
+an H1, which is how a downloaded document usually looks. It is the control that shows the title
+fold works.
+
+| Where the title lives      | langonrock | plus expansion |  MRR |
+| -------------------------- | ---------: | -------------: | ---: |
+| `title:` frontmatter       |    **95%** |       **100%** | 0.83 |
+| An H1 in the body          |        85% |            90% | 0.71 |
+| Raw Markdown, the baseline |        90% |            n/a | 0.71 |
+
+Indexing the title costs zero prompt tokens and no manifest width. It rides in the snapshot
+directory, never in a row the agent pays for on every turn.
+
+## The serving layer
+
+```sh
+bun bench/ops.ts [profile] [bundles] [concepts per bundle]
+```
+
+Disk figures cover the complete tenant, source archives, revision records and import metadata
+included.
+
+|                                | 500 concepts | 1,189, `scripture` | 5,000 concepts |
+| ------------------------------ | -----------: | -----------------: | -------------: |
+| Snapshot on disk               |      0.56 MB |            2.17 MB |        5.63 MB |
+| Sync an unchanged tree         |       9.5 ms |            32.3 ms |        84.3 ms |
+| Sync after editing one concept |      27.6 ms |            56.8 ms |       166.6 ms |
+| Edit on disk, read to visible  |      26.0 ms |            57.5 ms |       171.5 ms |
+| Index heap per tenant          |      1.07 MB |             7.6 MB |         8.1 MB |
+
+One query, by how you reach it. Cold is a fresh embedded invocation that builds the index first.
+Warm is the same question against an index already in memory in the same process. The socket row is
+a real `serve` over a unix socket, so it includes serialisation and IPC.
+
+|                                   | 500 concepts | 1,189, `scripture` | 5,000 concepts |
+| --------------------------------- | -----------: | -----------------: | -------------: |
+| Cold: open, index, one query      |      17.2 ms |           157.2 ms |       148.2 ms |
+| Warm, in process                  |     0.183 ms |           0.437 ms |       0.483 ms |
+| Over a unix socket, a real daemon |     0.312 ms |           0.564 ms |       0.639 ms |
+| Over a socket, read the manifest  |     0.112 ms |           0.113 ms |       0.129 ms |
+| Over a socket, batched `get`      |     0.152 ms |           0.178 ms |       0.108 ms |
+| Through MCP, the same search      |     0.397 ms |           0.630 ms |       0.773 ms |
+| The same search, no MCP layer     |     0.271 ms |           0.486 ms |       0.553 ms |
+
+**A daemon is 55 to 279 times faster.** Compare cold with the socket row, which is the fair pair:
+17.2 ms against 0.31, 157 against 0.56, 148 against 0.64. An embedded invocation rebuilds the BM25
+index from nothing before it can answer anything, and that is the whole of the difference.
+
+**Transport is a fixed cost, not a proportional one.** The socket adds 0.13 to 0.16 ms over the
+in-process figure, and the MCP layer adds another 0.13 to 0.22 ms. Neither grows much with the
+corpus. The query itself does. Warm search runs 0.18 to 0.48 ms here because it decompresses and
+scans the top hits' bodies to compute `pos`, and it reaches 14 ms when the hits are whole novels.
+That is still about two orders of magnitude below the model turn it feeds.
+
+The write path, through the HTTP source routes where the precondition lives:
+
+|                                      | 500 concepts | 1,189, `scripture` | 5,000 concepts |
+| ------------------------------------ | -----------: | -----------------: | -------------: |
+| Read, then write naming its hash     |      14.1 ms |            18.2 ms |        44.2 ms |
+| A write naming a stale hash, refused |      1.01 ms |            2.22 ms |        4.18 ms |
+| Stale writes actually refused        |        5 / 5 |              5 / 5 |          5 / 5 |
+
+**Losing a write race is cheap to discover.** A write that names the version it replaces costs 14
+to 44 ms end to end, because the engine syncs every new artifact to disk before it publishes the
+commit. A write that names a stale version is refused in 1 to 4 ms, because nothing gets written.
+The server refused every stale write in every run rather than merging it.
+
+**Immutability is paid in disk, linearly in edits.** A snapshot is one file named by its own hash,
+and two snapshots share nothing, so a one-line change writes a full copy. Ten edits leave eleven
+snapshots and eleven times the tenant on disk at every scale tested, which is 125 MB from an
+11.4 MB tenant at 5,000 concepts. Rollback is free, but `gc` is what keeps the design affordable. It
+keeps ten committed revisions by default and removes the rest.
+
+**A no-op sync is cheaper than an edit, but not free.** A sync that changes nothing costs a third
+to a half of one that changes something: 9.5 ms against 27.6 at 500 concepts, 84 against 167 at
+5,000. The store detects the no-op and writes nothing, but only after reading the whole tree. That
+is the watcher's steady cost per burst of filesystem events, and at 5,000 concepts it is 84 ms of
+work to conclude that nothing happened.
+
+**Determinism holds.** Identical input compiled twice produces the same snapshot hash and the writer
+reuses it, at every size tested. That is what keeps the manifest in the client's prompt cache across
+a rebuild.
+
+**Memory is mostly the index.** A tenant's BM25 index takes 1.4 to 3.5 times its snapshot size in
+heap after a full collection, 8.1 MB for 5,000 concepts. Resident memory per tenant is too noisy to
+report on Bun 1.4: across runs it moved between 0.2 and 8.9 MB per 5,000-concept tenant, because the
+allocator reuses pages that earlier index builds freed.
+
+## What registering the MCP server costs
+
+| Registering the MCP server          | Tokens |
+| ----------------------------------- | -----: |
+| The four read tools, every session  |  1,122 |
+| `write` on top of them              |    412 |
+| `delete` on top of that             |    207 |
+| Six tool definitions, every session |  1,741 |
+
+That is the entry fee, paid in the client's system prompt whether or not the model ever asks about
+knowledge, and it does not change with corpus size. The schemas of `get`'s four slicing parameters
+are 131 tokens of it, repaid the first time one window replaces one chapter. Another 156 explain
+the `pos` column, the `stale` status and the tenant's strategy advice, at 78, 55 and 23 tokens. One
+avoided capped read of 3,758 tokens repays them 24 times over.
+
+The write side is 619 of those tokens, 55 percent on top of the read tools. `write` alone ties
+`get` as the most expensive definition in the set, 412 tokens against 413. Seventy of them are the
+paragraph that teaches a model to recover from a refused precondition, which is cheaper than
+shipping a separate read-the-hash tool with a definition of its own. `delete` is half the size
+because it refers to that lesson instead of restating it. A deployment that only ever reads pays
+all 619 for nothing, and no flag omits them.
+
+The three database tools, `transact`, `history` and `restore`, are off unless a server starts with
+`--database-tools`. They add 510 tokens, measured without the tenant's advice sentence; see [the
+agent API](/docs/architecture/agent-api).
 
 ## How much to trust these numbers
 
 <Callout type="warn" title="Not very, in absolute terms">
-  They come from a synthetic corpus and a deliberately crude `chars / 4` token estimate. The
-  retrieval table covers a single scale only, because the generator reuses descriptions across
-  bundles, which makes description queries measure the corpus rather than the index.
+  The catalogue figures come from a synthetic corpus and a deliberately crude `chars / 4` token
+  estimate. The retrieval table covers a single scale only, because the generator reuses
+  descriptions across bundles, which makes description queries measure the corpus rather than the
+  index.
 </Callout>
+
+The real corpora are downloaded on first run and converted by parsers written against one edition
+of each text, and the harness fails loudly if an edition stops matching rather than benchmarking a
+corpus it silently mangled. Every timing comes from one machine.
 
 Treat all of it as an order of magnitude and measure your own bundles. The method is the
 transferable part: twenty real questions, tokens to first correct answer, and round trips counted.

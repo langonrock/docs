@@ -13,10 +13,10 @@ export function GetStarted() {
           <div>
             <p className="lr-prose">
               One binary for macOS and Linux on x64 and arm64, a data directory, and an MIT licence.
-              No schema to migrate and nothing that has to stay running between reads. It is written
-              for Bun 1.3, so reading it from source is{' '}
-              <code className="lr-mono">bun install</code> and a{' '}
-              <code className="lr-mono">--help</code>.
+              Embedded, there is no server to provision and nothing that has to stay running between
+              reads. From source it is Bun 1.4.2 or newer,{' '}
+              <code className="lr-mono">bun install</code>, and a C compiler for the small native
+              adapter that takes the OS locks and flushes files to disk.
             </p>
             <div className="lr-actions mt-7">
               <a href={repo} className="lr-action">

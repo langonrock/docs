@@ -75,10 +75,10 @@ export default async function OpenGraphImage() {
                   textShadow: `0 0 24px ${COBALT_GLOW}`,
                 }}
               >
-                faster, cheaper
+                document database
               </span>
             </div>
-            <span>document database for AI agents.</span>
+            <span>for what your agents know.</span>
           </div>
           <span style={{ fontSize: 21, color: DIM, lineHeight: 1.5 }}>{siteLead}</span>
         </div>
