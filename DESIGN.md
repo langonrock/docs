@@ -213,6 +213,9 @@ that measure left roughly half the viewport empty on six consecutive sections. W
 was the wrong fix, since 68ch is the readable line. The heading column doubles as the label column of
 a specification sheet, which is what the page is.
 
+Body copy that carries on a head's argument without a figure beside it, as in what reading costs,
+starts in the head's prose column through `.lr-column` instead of restarting at the container edge.
+
 Rhythm comes from three surface levels rather than from colour bands: the page, the `.lr-band`
 section, and the panels. Every content section is `py-24` and the footer is `py-16`. The features
 block was `py-32`, which read as detached rather than as rhythm, and came down to match.
