@@ -41,9 +41,9 @@ Precise, measured, unshowy.
 The project's own voice states numbers, names its method, and admits where it loses. The benchmark
 section prints the 2% saving on four novels next to the 98% on RFCs, and says plainly that prose
 with nothing to compile is the case this store does not help. Where ChromaDB bills fewer tokens, on
-the catalogue and the recipes, or plain BM25 over the raw files answers a query faster, the page
-says so with the number, in the sentence beside the measure langonrock wins. The site should sound
-like the same person wrote it.
+the catalogue and the recipes, or plain BM25 over the raw files builds and answers a query faster,
+the page says so with the number, in the sentence beside the measure langonrock wins. The site
+should sound like the same person wrote it.
 
 Tone is declarative and specific. No superlatives, no urgency, no persuasion the evidence does not
 support. Where a claim has a caveat, the caveat appears next to the claim rather than in a

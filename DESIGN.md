@@ -151,10 +151,12 @@ and ChromaDB are context bars named by their row labels. Colouring by rank would
 every time a number moved, and naming every row means colour never carries the meaning alone.
 
 Every comparison on the page is three-way, on the same questions and the same machine, with each
-side at its best for the measure, as PRODUCT.md sets out. The hero widget charts four measures
-langonrock wins, one tab at a time: the right concept in the top eight, round trips, tokens on four
-novels, and seconds to a searchable index at 5,000 concepts. Each tab's note states, beside the
-chart, where another side wins instead. Losses are sentences, never charts.
+side at its best for the measure, as PRODUCT.md sets out. The hero widget charts three measures
+langonrock wins, one tab at a time: the right concept in the top eight, round trips, and tokens on
+four novels. Each chart title carries an asterisk, and its note opens by saying whether higher or
+lower is better, then states where another side wins instead. Losses are sentences, never charts.
+Build time had a tab until a re-run on an idle machine showed BM25 over the raw files building a
+5,000-concept catalogue faster than langonrock, so it moved into the prose.
 
 The form follows the quantity. **Magnitudes** get zero-baseline bars, where length is the measure.
 Rates get the same bars against a 0 to 100% axis rather than a dot plot, because three series on one
@@ -308,7 +310,7 @@ shell. `page.tsx` mounts the sections and holds nothing but the hero.
 | File                                | Holds                                                    |
 | ----------------------------------- | -------------------------------------------------------- |
 | `install.tsx`                       | The install tabs, in the hero and again in `get-started`  |
-| `benchmarks.tsx`                    | The four three-way hero tabs and the numbers behind them  |
+| `benchmarks.tsx`                    | The three three-way hero tabs and the numbers behind them |
 | `charts.tsx`                        | `BarChart`, `GroupedBarChart` and `Legend`                |
 | `features.tsx`                      | The six capabilities, the one ported block                |
 | `lifecycle.tsx`                     | The four steps, the commands and the three DSNs           |
