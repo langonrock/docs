@@ -49,9 +49,8 @@ export function CommitPromise() {
               It is a local engine for documents. There is no SQL or query language, no replication,
               no transaction across tenants and no promise on a network filesystem. Crash recovery
               was tested by killing processes, not by cutting power, and the test suite passes on
-              macOS and Linux but not yet on Windows. Every commit writes a complete snapshot, so ten
-              edits with ten revisions kept take 69% more disk than the engine it replaced, and
-              collection is what bounds it.
+              macOS and Linux but not yet on Windows. Every commit writes a complete snapshot, so
+              each revision kept adds disk until collection prunes it.
             </p>
 
             <p className="lr-prose lr-note mt-8">

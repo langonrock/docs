@@ -2,7 +2,9 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { BarChart, ChangeChart } from './charts';
+import { BarChart } from './charts';
+
+const chromaResults = 'https://github.com/langonrock/langonrock/blob/main/bench/results/chroma/README.md';
 
 interface Benchmark {
   id: string;
@@ -13,80 +15,73 @@ interface Benchmark {
 
 const benchmarks: Benchmark[] = [
   {
+    id: 'retrieval',
+    label: 'Retrieval',
+    note: 'Twenty questions that name the concept they ask about, over a 500-concept catalogue. OKF is BM25 over the raw files; ChromaDB embeds 1,000-character chunks with all-MiniLM-L6-v2. Asked by description instead, langonrock and OKF find it 95% of the time and ChromaDB 70%, and on no corpus measured did langonrock find it less often than either.',
+    chart: (
+      <BarChart
+        title="Right concept in the top 8"
+        axis="100%"
+        unit="percent of questions"
+        max={100}
+        rows={[
+          { label: 'langonrock', value: 75, display: '75%', accent: true },
+          { label: 'OKF raw files', value: 70, display: '70%' },
+          { label: 'ChromaDB', value: 30, display: '30%' },
+        ]}
+      />
+    ),
+  },
+  {
+    id: 'calls',
+    label: 'Round trips',
+    note: 'The same twenty questions, each side on its path with the fewest calls. langonrock reads the manifest once and makes one batched fetch for each of the sixteen questions that need a document. ChromaDB returns its top eight chunks with their text, one search per question. The OKF navigator reads index.md, then each answer’s file and the files it links to. On prose with no links to batch, all three need about one per question: 21, 21 and 20 on four novels.',
+    chart: (
+      <BarChart
+        title="Tool calls"
+        axis="30 calls"
+        unit="tool calls"
+        max={30}
+        rows={[
+          { label: 'langonrock', value: 17, display: '17', accent: true },
+          { label: 'OKF navigator', value: 30, display: '30' },
+          { label: 'ChromaDB', value: 20, display: '20' },
+        ]}
+      />
+    ),
+  },
+  {
     id: 'tokens',
     label: 'Tokens',
-    note: 'Twenty questions over 500 concepts, against the OKF reference consumption pattern. The same session takes 17 tool calls instead of 30.',
+    note: 'Twenty questions over four novels, one concept per chapter, each side on its cheapest path. langonrock ranks and then reads a located window instead of the chapter, ChromaDB returns its top eight chunks with their text, and the navigator reads whole chapters. On the catalogue ChromaDB’s cheapest path bills fewer, 30,804 against 56,928, charged as if it always fetched the right chunk, and on the recipes 18,437 against 19,551.',
     chart: (
       <BarChart
         title="Tokens billed"
-        axis="116,357 tokens"
+        axis="130,101 tokens"
         unit="tokens"
-        max={116357}
+        max={130101}
         rows={[
-          { label: 'OKF navigator', value: 116357, display: '116,357' },
-          { label: 'langonrock', value: 64355, display: '64,355', accent: true },
+          { label: 'langonrock', value: 39862, display: '39,862', accent: true },
+          { label: 'OKF navigator', value: 130101, display: '130,101' },
+          { label: 'ChromaDB', value: 73695, display: '73,695' },
         ]}
       />
     ),
   },
   {
-    id: 'engine',
-    label: 'Engine',
-    note: 'Median of ten paired runs at 5,000 concepts on Bun 1.4.2, the runtime the binary ships with. Opening a tenant fails its limit there, at 500 concepts too, so performance acceptance is still open. Disk is ten identical edits with ten revisions kept, measured on Bun 1.3.12.',
-    chart: (
-      <ChangeChart
-        title="Against the engine it replaced"
-        axis="±70%"
-        unit="percent change"
-        max={70}
-        rows={[
-          { label: 'Get a concept', value: -48.72, display: '−49%' },
-          { label: 'Edit, then search', value: -44.93, display: '−45%' },
-          { label: 'Warm search', value: -37.35, display: '−37%' },
-          { label: 'Import a folder', value: -5.18, display: '−5%' },
-          { label: 'Open a tenant', value: 34.26, display: '+34%' },
-          { label: 'Disk, ten revisions', value: 68.9, display: '+69%' },
-        ]}
-      />
-    ),
-  },
-  {
-    id: 'operations',
-    label: 'Operations',
-    note: 'Median milliseconds at 5,000 concepts on Bun 1.3.12. The old engine had none of these, so there is nothing to compare against. A commit writes a complete snapshot, so it grows with the tenant: 25 new documents take 36 ms at 500 concepts and 278 ms at 20,000.',
+    id: 'build',
+    label: 'Build',
+    note: 'Making a 5,000-concept catalogue searchable. langonrock compiles it and builds its BM25 index; OKF loads the raw files and builds the same BM25; ChromaDB embeds every document with all-MiniLM-L6-v2 and stores one vector each, its fastest grain, while 1,000-character chunks take 361 s. On every smaller corpus measured the raw files build slightly faster, 0.10 s against 0.11 s at 500 concepts.',
     chart: (
       <BarChart
-        title="What a database operation costs"
-        axis="93.8 ms"
-        unit="milliseconds"
-        max={93.753}
+        title="Seconds to a searchable index"
+        axis="145 s"
+        unit="seconds"
+        max={145.3}
         rows={[
-          { label: 'Commit 25 new documents', value: 93.753, display: '93.8 ms', accent: true },
-          { label: 'Restore a revision', value: 71.397, display: '71.4 ms', accent: true },
-          { label: 'Commit 25 replacements', value: 39.879, display: '39.9 ms', accent: true },
-          { label: 'Refuse the losing writer', value: 18.731, display: '18.7 ms', accent: true },
-          { label: 'Commit the winning writer', value: 14.874, display: '14.9 ms', accent: true },
-          { label: 'Read a page of history', value: 1.135, display: '1.1 ms', accent: true },
-        ]}
-      />
-    ),
-  },
-  {
-    id: 'corpus',
-    label: 'By corpus',
-    note: 'Best strategy per corpus, at the grain shown. Structure pays — links, headings, titles — and where prose has none, find fetches a located window instead of the chapter. That is what moved the novels from the 2% they sat at.',
-    chart: (
-      <BarChart
-        title="Tokens saved against the navigator"
-        axis="100%"
-        unit="percent saved"
-        max={100}
-        rows={[
-          { label: 'spec, 28 RFCs', value: 98, display: '98%', accent: true },
-          { label: 'scripture, by book', value: 97, display: '97%', accent: true },
-          { label: 'handbook, 1,281 recipes', value: 84, display: '84%', accent: true },
-          { label: 'book, by chapter', value: 69, display: '69%', accent: true },
-          { label: 'reference, catalogue', value: 51, display: '51%', accent: true },
+          { label: 'langonrock', value: 0.431, display: '0.43 s', accent: true },
+          { label: 'OKF raw files', value: 0.908, display: '0.91 s' },
+          { label: 'ChromaDB', value: 145.3, display: '145 s' },
         ]}
       />
     ),
@@ -94,11 +89,10 @@ const benchmarks: Benchmark[] = [
 ];
 
 /**
- * The hero carries the benchmarks the evaluation turns on: what a session costs
- * an agent, how the engine moved against the one it replaced, what the new
- * database operations cost, and how the saving moves with corpus shape. The
- * engine tab is signed change around a zero line, because its rows mix time and
- * disk and only the direction and size of the change compare across them.
+ * Every tab puts the same three side by side on the same questions and the same
+ * machine, langonrock first: OKF as its reference pattern reads it, ChromaDB on
+ * its own best path for that measure. Each tab is a measure langonrock wins,
+ * and its note states, beside it, where another side wins instead.
  */
 export function Benchmarks() {
   const [active, setActive] = useState(benchmarks[0].id);
@@ -161,12 +155,12 @@ export function Benchmarks() {
       <p className="lr-bench-foot">
         How these were measured:{' '}
         <Link href="/docs/architecture/benchmarks" className="lr-link">
-          read model
+          OKF and langonrock
         </Link>
         ,{' '}
-        <Link href="/docs/architecture/engine-benchmarks" className="lr-link">
-          engine
-        </Link>
+        <a href={chromaResults} className="lr-link">
+          ChromaDB
+        </a>
         .
       </p>
     </div>

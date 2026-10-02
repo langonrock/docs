@@ -32,7 +32,7 @@ const features = [
     icon: Scissors,
     title: 'Pay for the section, not the document',
     description:
-      'Ask for the schema of a table by its own Markdown heading, hand find a phrase, or follow a search hit’s pos offset to the densest passage. A catalogue read drops from 594 tokens to 213; a novel chapter from 3,244 to 513.',
+      'Ask for the schema of a table by its own Markdown heading, hand find a phrase, or follow a search hit’s pos offset to the densest passage. A table’s schema costs 213 tokens, and a located window in a novel 513, whatever the document’s size.',
   },
   {
     icon: Snowflake,
