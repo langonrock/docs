@@ -798,52 +798,12 @@
   background: var(--lr-mark);
 }
 
-/* Cost -------------------------------------------------------------------- */
-
-/*
- * The argument and the one chart that carries it sit side by side, because the
- * divergence is the evidence for the paragraph next to it. The chart takes the
- * same frame as the bar charts, a title over a rule and nothing else, so the page
- * still reads as one set of figures rather than a borrowed card deck.
- */
-.lr-cost {
-  display: grid;
-  gap: 3rem;
-}
-@media (min-width: 72rem) {
-  .lr-cost {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 34rem);
-    gap: 5rem;
-    align-items: start;
-  }
-}
-.lr-cost-figure {
-  margin: 0;
-  min-width: 0;
-}
-.lr-cost-title {
-  display: block;
-  text-wrap: balance;
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: var(--lr-ink);
-  padding-bottom: 0.75rem;
-  border-bottom: 1px solid var(--lr-rule);
-  margin-bottom: 1rem;
-}
-.lr-cost-note {
-  margin-top: 0.875rem;
-  font-size: 0.8125rem;
-  line-height: 1.6;
-  color: var(--lr-faint);
-}
-
 /* What a commit promises -------------------------------------------------- */
 
 /*
- * The cost section's split, for the same reason: the contract in prose on the
- * left, and on the right the directory it is made of, framed as a figure so the
- * listing reads as evidence rather than as decoration.
+ * The contract in prose on the left, and on the right the directory it is made
+ * of, framed as a figure so the listing reads as evidence rather than as
+ * decoration.
  */
 .lr-promise {
   display: grid;
