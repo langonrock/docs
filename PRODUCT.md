@@ -40,10 +40,10 @@ Precise, measured, unshowy.
 
 The project's own voice states numbers, names its method, and admits where it loses. The benchmark
 section prints the 2% saving on four novels next to the 98% on RFCs, and says plainly that prose
-with nothing to compile is the case this store does not help. The hero prints the one engine timing
-that fails its limit, opening a tenant 34% slower than before, and the 69% more disk that retained
-revisions cost, next to the timings that improved. The site should sound like the same person
-wrote it.
+with nothing to compile is the case this store does not help. Where ChromaDB bills fewer tokens, on
+the catalogue and the recipes, or plain BM25 over the raw files answers a query faster, the page
+says so with the number, in the sentence beside the measure langonrock wins. The site should sound
+like the same person wrote it.
 
 Tone is declarative and specific. No superlatives, no urgency, no persuasion the evidence does not
 support. Where a claim has a caveat, the caveat appears next to the claim rather than in a
@@ -75,14 +75,22 @@ mechanism does not believe the number. Mechanism-first titles are the failure mo
 already had once, when six capabilities were called things like "Section addressing" and
 "Byte-deterministic output".
 
-**The fold says what it is, then shows the bill.** The hero names the category first: a document
-database for what your agents know, with Markdown in, atomic commits, history and restore. The bill
-follows as the evidence that this database is built for agents: 45% fewer tokens and thirteen fewer
-round trips, charted beside the sentence. This reverses the rule the page had before, which put the
-bill alone on the fold. That rule was right while the product was a read model over a folder the
-reader kept owning. Once langonrock owned the documents, a fold that only priced the reads hid the
-thing a visitor is being asked to trust with their data. The switching story, import, export and
-migration, still answers an objection only some readers have, so it stays in the capabilities.
+**The fold says what it is, then shows the evidence.** The hero names the category first: a document
+database for what your agents know, with Markdown in, atomic commits, history and restore. The
+evidence that it is built for agents follows, three ways: the right document 75% of the time in 17
+round trips, against 70% in 30 for plain OKF files and 30% in 20 for ChromaDB, charted beside the
+sentence. This reverses the rule the page had before, which put the bill alone on the fold. That
+rule was right while the product was a read model over a folder the reader kept owning. Once
+langonrock owned the documents, a fold that only priced the reads hid the thing a visitor is being
+asked to trust with their data. The switching story, import, export and migration, still answers an
+objection only some readers have, so it stays in the capabilities.
+
+**Every comparison is three-way, langonrock first.** Any number that sets langonrock against another
+approach shows langonrock, OKF and ChromaDB together, in that order, measured on the same questions
+on the same machine, with each side at its best for the measure. A chart carries a measure
+langonrock wins. Where another side wins, the sentence beside the chart says so, with the number.
+Nothing is hidden, and nothing that loses gets a chart. A figure with no ChromaDB or OKF counterpart
+is a plain statement about langonrock, never a comparison.
 
 **Show the artifact, do not describe it.** The artifacts are the product: the commands, the
 manifest rows, and the tenant directory a commit is made of. A visitor should see the real thing,
@@ -100,9 +108,9 @@ prompt in a command, the separator bytes on the share card.
 
 The page holds two exceptions and neither is an accident. The headline sets "document database" in
 Geist Pixel and in cobalt, because those two words are the category the page leads with and the rest
-of the sentence is context. The traffic lights on the benchmark window are the weaker one: red, amber and green
-carrying no meaning at all. Two is the budget. A third would make the first two read as styling
-rather than emphasis.
+of the sentence is context. The traffic lights on the benchmark window are the weaker one: red,
+amber and green carrying no meaning at all. Two is the budget. A third would make the first two read
+as styling rather than emphasis.
 
 **Nothing that could be any other project's page.** If a section would survive a find-and-replace
 of the product name, it is not carrying its weight.

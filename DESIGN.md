@@ -21,13 +21,14 @@ different sites.
 
 ## The reference object
 
-The compiled command, and the shape of a read.
+The commands, the directory they write, and every measure three ways.
 
-The page's imagery is the CLI it documents: four commands in mono panels, each under the sentence
-that says what it does, plus the three DSNs that pick a mode. The store is byte-deterministic and
-content-addressed, and every command shown corresponds to one the binary actually accepts. That is
-the line against the project's own terminal-cosplay anti-reference: no acid green, no blinking
-cursor, no ASCII art, no prompt that does not resolve to a real invocation.
+The page's imagery is the CLI it documents: four commands in mono panels, import, read, commit and
+restore, each under the sentence that says what it does, plus the three DSNs that pick a mode, and
+the real tenant directory a commit is made of, listed file by file beside the contract it keeps.
+Every command shown is one the binary accepts, and every directory entry is one the engine writes.
+That is the line against the project's own terminal-cosplay anti-reference: no acid green, no
+blinking cursor, no ASCII art, no prompt that does not resolve to a real invocation.
 
 The hex dump that used to carry this role was removed from the page along with the manifest table.
 `manifest.ts` still holds the rows, the serialized bytes and the `sha256` over them, because
@@ -121,8 +122,8 @@ Display runs `clamp(2rem, 1.15rem + 3.3vw, 3.75rem)`, tracking `-0.03em`, inside
 and well under the 6rem ceiling. Section headings run `clamp(1.5rem, 1.2rem + 1.3vw, 2.25rem)` at
 `-0.022em`.
 
-The ladder is measured rather than asserted: one 60px `h1`, five 36px `h2` that are the same size in
-every section, and `h3` sized by what it labels, 20px on a feature card, 18px on a read-path step,
+The ladder is measured rather than asserted: one 60px `h1`, six 36px `h2` that are the same size in
+every section, and `h3` sized by what it labels, 20px on a feature card, 18px on a lifecycle step,
 15px on an editor surface. The features block used to render its heading at 60px, which put an `h2`
 level with the page's only `h1`, and its card titles at 24px, which matched the `h2` minimum on
 mobile exactly. Both were pulled onto `.lr-h2` and a 20px title.
@@ -132,56 +133,46 @@ balance`. Body line-height is 1.65, raised for light type on a dark surface.
 
 ## Identity
 
-The wordmark stands alone in the navigation. The stone-cube mark was removed from the nav on request
-and from the social card with it. `src/app/icon.png` and `src/app/apple-icon.png` still carry it as
-the favicon, so it survives in the browser tab. `public/logo.png` is now referenced by nothing and is
-left in place rather than deleted, in case the mark comes back.
+The Moai mark sits beside the wordmark in the navigation, drawn from `public/logo.svg` with a white
+outline so it holds on the dark shell, and again on the social card. `src/app/icon.png` and
+`src/app/apple-icon.png` carry it as the favicon.
 
-The OG card was rebuilt on the dark surface: wordmark, headline, description, and a three-row hex
-dump of the real manifest with the separator bytes in cobalt. Satori has no monospace font loaded, so
-the byte grid is laid out with fixed-width boxes rather than trusting the glyph advance.
+The OG card is built on the dark surface: the mark and wordmark, the hero's sentence with the pixel
+span on "document database", the lead, and a three-row hex dump of the real manifest with the
+separator bytes in cobalt. Satori has no monospace font loaded, so the byte grid is laid out with
+fixed-width boxes rather than trusting the glyph advance. The card's fonts are subsets covering
+printable ASCII and a handful of punctuation, so every string on it stays inside that set.
 
 ## Data visualization
 
-Five charts, all **emphasis** rather than categorical: one accent hue plus a de-emphasis gray. The
-accent follows the entity, not the winner, so langonrock is cobalt in every chart. Colouring by rank
-would repaint the meaning every time a number moved.
+Every chart is **emphasis** rather than categorical: one accent hue plus a de-emphasis gray. The
+accent follows the entity, not the winner, so langonrock is cobalt and first in every chart, and OKF
+and ChromaDB are context bars named by their row labels. Colouring by rank would repaint the meaning
+every time a number moved, and naming every row means colour never carries the meaning alone.
 
-The form follows the quantity. **Magnitudes** get zero-baseline bars, where length is the measure:
-tokens billed, tool calls, the cost of one read, manifest size against bundle slice. Those four sit
-in the hero, in a tab widget that shows one at a time, because tokens billed and tool calls decide
-whether the page is worth believing and belong on the fold.
+Every comparison on the page is three-way, on the same questions and the same machine, with each
+side at its best for the measure, as PRODUCT.md sets out. The hero widget charts four measures
+langonrock wins, one tab at a time: the right concept in the top eight, round trips, tokens on four
+novels, and seconds to a searchable index at 5,000 concepts. Each tab's note states, beside the
+chart, where another side wins instead. Losses are sentences, never charts.
 
-**A quantity over a growing tenant** gets a filled area, where the divergence is the measure. One
-chart, in `What it costs`: the whole manifest against one bundle slice at 500, 5,000 and 20,000
-concepts. It is the only claim on the page where the picture beats the sentence, so it is the only
-one that gets a second chart form. `type="linear"` rather than a spline, because three measured
-points are all there is and a curve between them would draw shape that nothing measured. The x axis
-is spaced by run rather than by concept count, which the caveat under the section says out loud.
-
-The two rate charts, hit rate and mean reciprocal rank, were dot plots and are now two sentences.
-The ranking loss reads better as prose next to the claim it qualifies than as a pair of small
-multiples, and it keeps `What it costs` to the one chart that earns its space. `DotPlot` came out of
-`charts.tsx` with them.
+The form follows the quantity. **Magnitudes** get zero-baseline bars, where length is the measure.
+Rates get the same bars against a 0 to 100% axis rather than a dot plot, because three series on one
+dot track collide.
 
 | Token           | Value                    | Role                          |
 | --------------- | ------------------------ | ----------------------------- |
-| `--lr-mark`     | `oklch(0.68 0.163 258)`  | The langonrock path           |
-| `--lr-mark-dim` | `oklch(0.555 0.018 258)` | Context series                |
+| `--lr-mark`     | `oklch(0.68 0.163 258)`  | langonrock                    |
+| `--lr-mark-dim` | `oklch(0.555 0.018 258)` | OKF and ChromaDB              |
 | `--lr-track`    | `oklch(0.235 0.018 258)` | Bar track                     |
 
 The bar charts are real `<table>` elements with the mark drawn inside a cell, so the chart and its
 table view are the same DOM and cannot drift apart. Bars are 8px with a 2px radius on the growing end
 only, square at the baseline. Direct labels sit in their own column, so nothing is clipped.
 
-The area chart cannot do that. recharts draws an SVG that only exists after hydration, so the numbers
-at both ends of both series are written into the caption under it as text. A reader without
-JavaScript loses the picture and keeps every figure in it.
-
-`src/components/ui/chart.tsx` is shadcn's chart wrapper retargeted to this system: `bg-background`
-and `text-muted-foreground` do not exist in this Tailwind theme, so they became `--lr-panel` and
-`--lr-dim`, and the light/dark `<style>` injection became inline custom properties, because the site
-ships one theme.
+What reading costs carries no chart. Its old area chart set the whole manifest against one bundle
+slice, langonrock against itself, which a three-way page has no place for, and recharts and the
+shadcn chart wrapper went with it. The argument is prose, and every figure in it is three-way.
 
 **No dual axis.** Different scales get separate charts or separate sentences, never one plot with two
 y-axes.
@@ -242,8 +233,8 @@ without naming.
 
 ### Order
 
-Hero with the claim, the measurement and the install command. Then what you get, the read path, what
-it costs, the editor, the action, the footer.
+Hero with the claim, the three-way measurement and the install command. Then what you get, the
+lifecycle, what a commit promises, what reading costs, the editor, the action, the footer.
 
 **What you get sits directly under the fold.** A reader who has just seen the number has a reason to
 read what the number buys before reading how it was measured.
@@ -254,40 +245,33 @@ on the fold, and the fastest action for a binary is the command itself, not a li
 `View the source` still closes the page, where a reader who has read the evidence has a reason to
 take it.
 
-**Everything below the features block was rebuilt as four narrative sections.** Six sections of
-prose, tables and small multiples became: the read path, a numbered walkthrough where each step pairs
-a sentence with the command or the DSN list that performs it; what it costs, where the numbers live
-inside the argument rather than in charts beside it; the editor; and one closing section that repeats
-the install command next to the repository link. Every claim the old sections carried has a home in
-one of the four. The latency and disk-size charts did not survive the cut, and neither figure had
-been on the page before that day.
-
-The caveat about the synthetic corpus closes the left column of `What it costs` rather than sitting
-full-width under both. It is the qualification on the argument, and PRODUCT.md asks for the caveat
-next to the claim; it also happens to balance a two-column grid whose right side is taller.
+**The lifecycle is the one walkthrough.** Import, read, commit, restore: each step pairs a sentence
+with the command or the DSN list that performs it, and each uses what the step before it returned.
+**What a commit promises** follows it, because a reader who has just seen a commit and a restore is
+the one asking what a commit guarantees; the contract sits in prose beside the tenant directory it
+is made of. **What reading costs** is prose, the three-way argument with every loss stated in the
+sentence that carries it, closed by the caveat about the corpora and the method.
 
 ## Motion
 
-Three moments, each fitting what it reveals.
+Two moments, each fitting what it reveals.
 
 - Bars in the hero widget grow with an animating `clip-path`. `clip-path` rather than `width` keeps it
   off the layout path, and rather than `scaleX` keeps the rounded end from squashing.
-- The two areas in the cost chart draw in on mount, which recharts runs in JavaScript.
 - The features hover halo slides between cards on a shared framer `layoutId` instead of fading out
   and back in.
 
-The CSS moments are keyframes with a `from` state and `animation-fill-mode: backwards`, so the
-resting state is the default and the reveal is an enhancement. Nothing is gated on a class an
+The bar growth is a keyframe with a `from` state and `animation-fill-mode: backwards`, so the resting
+state is the default and the reveal is an enhancement. Nothing is gated on a class an
 IntersectionObserver has to add, and nothing uses a scroll-driven timeline, both of which render blank
 in a headless screenshot of the part of the page below the fold.
 
-The four new sections carry no entrance motion. A page that animates its argument in section by
-section is the uniform reflex, and none of these four reveals anything a reveal would clarify.
+The narrative sections carry no entrance motion. A page that animates its argument in section by
+section is the uniform reflex, and none of them reveals anything a reveal would clarify.
 
 `prefers-reduced-motion: reduce` collapses every CSS animation to 1ms with no delay and drops the
-hover transitions. The two JavaScript-driven moments are outside the stylesheet's reach, so they read
-the preference directly: `MotionConfig reducedMotion="user"` for the features hover, and framer's
-`useReducedMotion` feeding `isAnimationActive` on each `Area`.
+hover transitions. The features hover is driven by framer, outside the stylesheet's reach, so it
+reads the preference directly through `MotionConfig reducedMotion="user"`.
 
 ## Deliberate exclusions
 
@@ -295,19 +279,20 @@ Recorded so they do not creep back in.
 
 - No uppercase tracked eyebrow above section headings. The ported features block arrived with a
   `Features` pill and it was taken back out, so the rule still holds everywhere.
-- **One** numbered sequence, in the read path, and nowhere else. `01 / 02 / 03` above every section is
-  the eyebrow trope one tier deeper, and this document banned it outright until the read path needed
-  it. The four steps are a real order: you cannot open a snapshot you have not compiled, or get a
-  section out of a store you have not opened. The numbers carry that dependency, which prose alone
-  would have to restate four times. The test for anything that follows: if the order can be shuffled
-  without the section becoming wrong, it does not get numbers.
+- **One** numbered sequence, in the lifecycle, and nowhere else. `01 / 02 / 03` above every section
+  is the eyebrow trope one tier deeper, and this document banned it outright until a walkthrough
+  needed it. The four steps are a real order: you cannot read a tenant you have not imported, commit
+  against a version you have not read, or restore a revision that was never committed. The numbers
+  carry that dependency, which prose alone would have to restate four times. The test for anything
+  that follows: if the order can be shuffled without the section becoming wrong, it does not get
+  numbers.
 - No gradient text, no glassmorphism, no side-stripe borders.
 - No radial cobalt bloom behind the hero. It is the single most common dark dev-tool move and it would
   make this page guessable from its category.
 - No hero-metric tile. The headline numbers are charted in the same grammar as every other number on
   the page, with the caveat in the sentence underneath, because the caveat is the point.
-- No stock photography. The imagery is the commands, the DSNs and the one chart of a tenant growing,
-  which is the material that could not be find-and-replaced onto another product. The manifest bytes
+- No stock photography. The imagery is the commands, the DSNs and the tenant directory, which is the
+  material that could not be find-and-replaced onto another product. The manifest bytes
   survive on the social card.
 - No fabricated install affordances. The install block carries only what the docs actually document:
   the `curl | sh` script, the source path via Bun, and the releases page for Windows. There is no
@@ -323,16 +308,16 @@ shell. `page.tsx` mounts the sections and holds nothing but the hero.
 | File                                | Holds                                                    |
 | ----------------------------------- | -------------------------------------------------------- |
 | `install.tsx`                       | The install tabs, in the hero and again in `get-started`  |
-| `benchmarks.tsx`                    | The four hero tabs and the numbers behind them            |
+| `benchmarks.tsx`                    | The four three-way hero tabs and the numbers behind them  |
 | `charts.tsx`                        | `BarChart`, `GroupedBarChart` and `Legend`                |
 | `features.tsx`                      | The six capabilities, the one ported block                |
-| `read-path.tsx`                     | The four steps, the commands and the three DSNs           |
-| `cost.tsx`                          | The argument and the one area chart                       |
+| `lifecycle.tsx`                     | The four steps, the commands and the three DSNs           |
+| `promise.tsx`                       | The commit contract and the tenant directory beside it    |
+| `cost.tsx`                          | The three-way argument, in prose                          |
 | `editor.tsx`                        | langoneditor and its four surfaces                        |
 | `get-started.tsx`                   | The closing action                                        |
 | `site-footer.tsx`                   | The four footer columns                                   |
-| `components/ui/chart.tsx`           | shadcn's chart wrapper, retargeted to the `.lr` tokens    |
-| `components/ui/copy-button.tsx`     | Shared by the install block and the read-path commands    |
+| `components/ui/copy-button.tsx`     | Shared by the install block and the lifecycle commands    |
 | `manifest.ts`                       | The rows, the bytes and the digest, for the social card    |
 
 `features.tsx` is the one file that styles itself with Tailwind utilities rather than an `.lr` class,
