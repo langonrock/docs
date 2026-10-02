@@ -36,7 +36,7 @@ export function Editor() {
             <p className="lr-prose">
               The compiled read model is for agents. langoneditor is the half you look at, a desktop
               app for macOS, Windows and Linux. Point it at a folder of Markdown and it works, or
-              point it at a langonrock server and it searches that server’s own index. The binary
+              point it at a Lang on Rock server and it searches that server’s own index. The binary
               ships inside it, so there is nothing else to install.
             </p>
             <p className="lr-prose mt-4">

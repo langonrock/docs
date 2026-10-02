@@ -19,7 +19,7 @@ const benchmarks: Benchmark[] = [
     id: 'retrieval',
     label: 'Retrieval',
     better: 'higher',
-    note: 'Twenty questions that name the concept they ask about, over a 500-concept catalogue. OKF is BM25 over the raw files; ChromaDB embeds 1,000-character chunks with all-MiniLM-L6-v2. Asked by description instead, langonrock and OKF find it 95% of the time and ChromaDB 70%, and on no corpus measured did langonrock find it less often than either.',
+    note: 'Twenty questions that name the concept they ask about, over a 500-concept catalogue. OKF is BM25 over the raw files; ChromaDB embeds 1,000-character chunks with all-MiniLM-L6-v2. Asked by description instead, Lang on Rock and OKF find it 95% of the time and ChromaDB 70%, and on no corpus measured did Lang on Rock find it less often than either.',
     chart: (
       <BarChart
         footnote
@@ -28,7 +28,7 @@ const benchmarks: Benchmark[] = [
         unit="percent of questions"
         max={100}
         rows={[
-          { label: 'langonrock', value: 75, display: '75%', accent: true },
+          { label: 'Lang on Rock', value: 75, display: '75%', accent: true },
           { label: 'OKF raw files', value: 70, display: '70%' },
           { label: 'ChromaDB', value: 30, display: '30%' },
         ]}
@@ -39,7 +39,7 @@ const benchmarks: Benchmark[] = [
     id: 'calls',
     label: 'Round trips',
     better: 'lower',
-    note: 'The same twenty questions, each side on its path with the fewest calls. langonrock reads the manifest once and makes one batched fetch for each of the sixteen questions that need a document. ChromaDB returns its top eight chunks with their text, one search per question. The OKF navigator reads index.md, then each answer’s file and the files it links to. On prose with no links to batch, all three need about one per question: 21, 21 and 20 on four novels.',
+    note: 'The same twenty questions, each side on its path with the fewest calls. Lang on Rock reads the manifest once and makes one batched fetch for each of the sixteen questions that need a document. ChromaDB returns its top eight chunks with their text, one search per question. The OKF navigator reads index.md, then each answer’s file and the files it links to. On prose with no links to batch, all three need about one per question: 21, 21 and 20 on four novels.',
     chart: (
       <BarChart
         footnote
@@ -48,7 +48,7 @@ const benchmarks: Benchmark[] = [
         unit="tool calls"
         max={30}
         rows={[
-          { label: 'langonrock', value: 17, display: '17', accent: true },
+          { label: 'Lang on Rock', value: 17, display: '17', accent: true },
           { label: 'OKF navigator', value: 30, display: '30' },
           { label: 'ChromaDB', value: 20, display: '20' },
         ]}
@@ -59,7 +59,7 @@ const benchmarks: Benchmark[] = [
     id: 'tokens',
     label: 'Tokens',
     better: 'lower',
-    note: 'Twenty questions over four novels, one concept per chapter, each side on its cheapest path. langonrock ranks and then reads a located window instead of the chapter, ChromaDB returns its top eight chunks with their text, and the navigator reads whole chapters. On the catalogue ChromaDB’s cheapest path bills fewer, 30,804 against 56,928, charged as if it always fetched the right chunk, and on the recipes 18,450 against 19,551.',
+    note: 'Twenty questions over four novels, one concept per chapter, each side on its cheapest path. Lang on Rock ranks and then reads a located window instead of the chapter, ChromaDB returns its top eight chunks with their text, and the navigator reads whole chapters. On the catalogue ChromaDB’s cheapest path bills fewer, 30,804 against 56,928, charged as if it always fetched the right chunk, and on the recipes 18,450 against 19,551.',
     chart: (
       <BarChart
         footnote
@@ -68,7 +68,7 @@ const benchmarks: Benchmark[] = [
         unit="tokens"
         max={130101}
         rows={[
-          { label: 'langonrock', value: 39862, display: '39,862', accent: true },
+          { label: 'Lang on Rock', value: 39862, display: '39,862', accent: true },
           { label: 'OKF navigator', value: 130101, display: '130,101' },
           { label: 'ChromaDB', value: 73021, display: '73,021' },
         ]}
@@ -150,7 +150,7 @@ export function Benchmarks() {
       <p className="lr-bench-foot">
         How these were measured:{' '}
         <Link href="/docs/architecture/benchmarks" className="lr-link">
-          OKF and langonrock
+          OKF and Lang on Rock
         </Link>
         ,{' '}
         <a href={chromaResults} className="lr-link">

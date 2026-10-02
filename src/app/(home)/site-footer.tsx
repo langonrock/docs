@@ -24,7 +24,7 @@ const columns = [
   {
     title: 'Source',
     links: [
-      { label: 'langonrock', href: repo, external: true },
+      { label: 'Lang on Rock', href: repo, external: true },
       { label: 'langoneditor', href: editorRepo, external: true },
     ],
   },

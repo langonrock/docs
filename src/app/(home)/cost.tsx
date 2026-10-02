@@ -2,7 +2,7 @@ import Link from 'next/link';
 
 const heading = 'What reading costs, and where it loses';
 const description =
-  'Twenty fixed questions per corpus on one machine, every side billed for delivering the same answers. OKF is its reference consumption pattern, navigating with no wrong turns. ChromaDB is chromadb 1.5.9 with its default all-MiniLM-L6-v2 embeddings, run through langonrock’s own harness on whichever of its paths is cheapest for the figure quoted.';
+  'Twenty fixed questions per corpus on one machine, every side billed for delivering the same answers. OKF is its reference consumption pattern, navigating with no wrong turns. ChromaDB is chromadb 1.5.9 with its default all-MiniLM-L6-v2 embeddings, run through Lang on Rock’s own harness on whichever of its paths is cheapest for the figure quoted.';
 
 const chromaResults = 'https://github.com/langonrock/langonrock/blob/main/bench/results/chroma/README.md';
 
@@ -17,16 +17,16 @@ export function Cost() {
 
         <div className="lr-column mt-14">
           <p className="lr-prose">
-            On the 500-concept catalogue langonrock answers in 17 round trips, against 30 for the
+            On the 500-concept catalogue Lang on Rock answers in 17 round trips, against 30 for the
             OKF navigator and 20 for ChromaDB, because the agent reads the manifest once and makes
             one batched fetch per question. It ranks the concept a question names in its top eight
             75% of the time, against 70% for the raw files and 30% for ChromaDB. Tokens are where
-            ChromaDB wins on this corpus: its cheapest path bills 30,804 against langonrock’s
+            ChromaDB wins on this corpus: its cheapest path bills 30,804 against Lang on Rock’s
             56,928 and the navigator’s 116,357, charged as if it always fetched the right chunk.
           </p>
 
           <p className="lr-prose mt-5">
-            The documents decide the token bill. On twenty-eight RFCs langonrock bills 13,995
+            The documents decide the token bill. On twenty-eight RFCs Lang on Rock bills 13,995
             tokens in 16 round trips, against 27,629 for ChromaDB and 756,168 for the navigator. On
             four novels it bills 39,862 by reading located passages instead of chapters, against
             73,021 and 130,101, and on the Bible at one concept per book 39,395, against 77,469 and
@@ -36,7 +36,7 @@ export function Cost() {
           </p>
 
           <p className="lr-prose mt-5">
-            On no corpus did langonrock find the right concept less often than either. Asked by
+            On no corpus did Lang on Rock find the right concept less often than either. Asked by
             name, it found it for every question over the recipes and over the RFCs, against 90% for
             both the raw files and ChromaDB on the recipes and 95% for both on the RFCs. Asked by
             description, it found it for 80% of the recipe questions, against 55% and 50%.
@@ -44,10 +44,10 @@ export function Cost() {
 
           <p className="lr-prose mt-5">
             Nothing in it embeds anything. A 5,000-concept catalogue is searchable 0.38 s after
-            langonrock starts compiling it, against 89 s for ChromaDB to embed it, and its compiled
+            Lang on Rock starts compiling it, against 89 s for ChromaDB to embed it, and its compiled
             snapshot takes 5.4 MiB against the 67.5 MiB ChromaDB writes. BM25 over the raw files is
-            faster at both: searchable in 0.31 s, and 0.24 ms a query against langonrock’s 0.52 ms,
-            because langonrock also locates the passage in its top hits. ChromaDB takes 72 ms a
+            faster at both: searchable in 0.31 s, and 0.24 ms a query against Lang on Rock’s 0.52 ms,
+            because Lang on Rock also locates the passage in its top hits. ChromaDB takes 72 ms a
             query, embedding the question included.
           </p>
 
@@ -60,7 +60,7 @@ export function Cost() {
               href="/docs/architecture/benchmarks"
               className="lr-link text-[color:var(--lr-ink)]"
             >
-              The OKF and langonrock method
+              The OKF and Lang on Rock method
             </Link>
             , and{' '}
             <a href={chromaResults} className="lr-link text-[color:var(--lr-ink)]">
